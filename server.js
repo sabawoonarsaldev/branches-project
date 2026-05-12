@@ -2,27 +2,57 @@ const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 const path = require('path');
+const fs = require("fs")
+require('dotenv').config();
 
+// // Fix MySQL timezone issue
+// const pool = mysql.createPool({
+//     host: process.env.DB_HOST || 'localhost',
+//     user: process.env.DB_USER || 'root',
+//     password: process.env.DB_PASSWORD || 'shakeb123',
+//     database: process.env.DB_NAME || 'branchflow_db',
+//     waitForConnections: true,
+//     connectionLimit: 10,
+//     timezone: '+00:00'
+// });
+// // Test connection
+// pool.getConnection().then(conn => {
+//     console.log('Connected to MySQL successfully');
+//     conn.release();
+// }).catch(err => {
+//     console.error('MySQL connection error:', err);
+// });
 
-// Fix MySQL timezone issue
+// MySQL connection pool (Aiven / production ready)
+
+const ca_path = process.env.CA || '/etc/secrets/ca.pem';
 const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || 'arsal123',
-    database: process.env.DB_NAME || 'branchflow_db',
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT,
+
     waitForConnections: true,
     connectionLimit: 10,
+
+    // important for Aiven
+    ssl: {
+        ca: fs.readFileSync(ca_path),
+        rejectUnauthorized: true
+    },
+
     timezone: '+00:00'
 });
 
-
-// Test connection
-pool.getConnection().then(conn => {
-    console.log('Connected to MySQL successfully');
-    conn.release();
-}).catch(err => {
-    console.error('MySQL connection error:', err);
-});
+pool.getConnection()
+    .then(conn => {
+        console.log('Connected to MySQL successfully');
+        conn.release();
+    })
+    .catch(err => {
+        console.error('MySQL connection error:', err);
+    });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -52,13 +82,13 @@ app.post('/api/inventory', async (req, res) => {
             'INSERT INTO main_inventory (name, purchase_price, selling_price, quantity, supplier, date) VALUES (?, ?, ?, ?, ?, ?)',
             [name, purchase_price, selling_price, quantity, supplier, date]
         );
-        
+
         // Also add to main_client_items
         await pool.execute(
             'INSERT INTO main_client_items (name, selling_price, purchase_price, quantity, supplier, date) VALUES (?, ?, ?, ?, ?, ?)',
             [name, selling_price, purchase_price, quantity, supplier, date]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM main_inventory WHERE id = ?', [result.insertId]);
         res.json(rows[0]);
     } catch (err) {
@@ -70,23 +100,23 @@ app.put('/api/inventory/:id', async (req, res) => {
     const { id } = req.params;
     const { name, purchase_price, selling_price, quantity, supplier, date } = req.body;
     console.log(`Updating inventory item ${id}:`, { name, purchase_price, selling_price, quantity, supplier, date });
-    
+
     try {
         const [existingItem] = await pool.execute('SELECT * FROM main_inventory WHERE id = ?', [id]);
         if (existingItem.length === 0) {
             return res.status(404).json({ error: 'Item not found' });
         }
-        
+
         await pool.execute(
             'UPDATE main_inventory SET name = ?, purchase_price = ?, selling_price = ?, quantity = ?, supplier = ?, date = ? WHERE id = ?',
             [name, purchase_price, selling_price, quantity, supplier, date, id]
         );
-        
+
         await pool.execute(
             'UPDATE main_client_items SET name = ?, selling_price = ?, purchase_price = ?, quantity = ?, supplier = ?, date = ? WHERE id = ?',
             [name, selling_price, purchase_price, quantity, supplier, date, id]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM main_inventory WHERE id = ?', [id]);
         console.log('Item updated:', rows[0]);
         res.json(rows[0]);
@@ -146,7 +176,7 @@ app.post('/api/main-client-distributed', async (req, res) => {
              ON DUPLICATE KEY UPDATE distributed_quantity = distributed_quantity + ?`,
             [main_client, item_name, distributed_quantity, distributed_quantity]
         );
-        
+
         const [rows] = await pool.execute(
             'SELECT * FROM main_client_distributed WHERE main_client = ? AND item_name = ?',
             [main_client, item_name]
@@ -166,12 +196,12 @@ app.post('/api/users', async (req, res) => {
         if (existingUser.length > 0) {
             return res.status(400).json({ error: 'Username already exists' });
         }
-        
+
         const [result] = await pool.execute(
             'INSERT INTO users (username, password, role, frozen, blocked, deleted) VALUES (?, ?, ?, ?, ?, ?)',
             [username, password, role, frozen || false, blocked || false, deleted || false]
         );
-        
+
         const [rows] = await pool.execute('SELECT id, username, role FROM users WHERE id = ?', [result.insertId]);
         res.json(rows[0]);
     } catch (err) {
@@ -187,7 +217,7 @@ app.put('/api/users/:id', async (req, res) => {
             'UPDATE users SET username = ?, password = ?, role = ?, frozen = ?, blocked = ?, deleted = ? WHERE id = ?',
             [username, password, role, frozen, blocked, deleted, id]
         );
-        
+
         const [rows] = await pool.execute('SELECT id, username, role FROM users WHERE id = ?', [id]);
         res.json(rows[0]);
     } catch (err) {
@@ -253,7 +283,7 @@ app.post('/api/branch-inventory', async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [branch, item_name, quantity, selling_price, purchase_price, shipment_date, distribution_id, supplier, original_quantity || quantity]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM branch_inventory WHERE id = ?', [result.insertId]);
         res.json(rows[0]);
     } catch (err) {
@@ -280,7 +310,7 @@ app.post('/api/sales', async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM sales_history WHERE id = ?', [result.insertId]);
         res.json(rows[0]);
     } catch (err) {
@@ -292,10 +322,10 @@ app.post('/api/sales', async (req, res) => {
 app.get('/api/shipments', async (req, res) => {
     try {
         const [rows] = await pool.execute('SELECT * FROM shipments_to_branches ORDER BY date DESC');
-     
+
         const shipments = rows.map(s => ({
-        id: s.id,
-        date: s.date ? (typeof s.date === 'string' ? s.date.split('T')[0] : s.date.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2}).*/, '$1-$2-$3')) : null,
+            id: s.id,
+            date: s.date ? (typeof s.date === 'string' ? s.date.split('T')[0] : s.date.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2}).*/, '$1-$2-$3')) : null,
             branch: s.branch,
             item: s.item,
             qty: s.qty,
@@ -320,16 +350,16 @@ app.post('/api/shipments', async (req, res) => {
     if (date && date.includes('/')) {
         cleanDate = date.replace(/\//g, '-');
     }
-    
+
     console.log('Original date:', date, 'Cleaned date:', cleanDate);
-    
+
     try {
         const [result] = await pool.execute(
             `INSERT INTO shipments_to_branches (date, branch, item, qty, selling_price, purchase_price, unique_key) 
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [cleanDate, branch, item, qty, selling_price, purchase_price, unique_key]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM shipments_to_branches WHERE id = ?', [result.insertId]);
         console.log('Shipment saved with date:', rows[0].date);
         res.json(rows[0]);
@@ -350,7 +380,7 @@ app.post('/api/expenses', async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?)`,
             [date, category, amount, description, user_role, username]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM expenses WHERE id = ?', [result.insertId]);
         res.json(rows[0]);
     } catch (err) {
@@ -358,10 +388,6 @@ app.post('/api/expenses', async (req, res) => {
     }
 });
 
-// Root endpoint
-app.get('/', (req, res) => {
-    res.send('BranchFlow API Server is running');
-});
 
 // Get all expenses for admin
 app.get('/api/expenses/admin', async (req, res) => {
@@ -378,13 +404,13 @@ app.get('/api/expenses/admin', async (req, res) => {
 app.get('/api/main-client-payments/:mainClient/:itemId/:itemName/:quantity', async (req, res) => {
     const { mainClient, itemId, itemName, quantity } = req.params;
     console.log(`Checking payment status for: ${mainClient}, itemId: ${itemId}, itemName: ${itemName}, quantity: ${quantity}`);
-    
+
     try {
         const [rows] = await pool.execute(
             'SELECT is_paid FROM main_client_payments WHERE main_client = ? AND item_id = ? AND item_name = ? AND quantity = ?',
             [mainClient, parseInt(itemId), itemName, parseInt(quantity)]
         );
-        
+
 
         const isPaid = rows.length > 0 ? (rows[0].is_paid === 1 || rows[0].is_paid === true) : false;
         res.json({ is_paid: isPaid });
@@ -399,13 +425,13 @@ app.get('/api/main-client-payments/:mainClient/:itemId/:itemName/:quantity', asy
 app.post('/api/main-client-payments', async (req, res) => {
     const { main_client, item_id, item_name, quantity, date } = req.body;
     console.log(`Marking item as paid:`, { main_client, item_id, item_name, quantity, date });
-    
+
     try {
         const [existing] = await pool.execute(
             'SELECT * FROM main_client_payments WHERE main_client = ? AND item_id = ? AND item_name = ? AND quantity = ? AND date = ?',
             [main_client, item_id, item_name, quantity, date]
         );
-        
+
         let result;
         if (existing.length > 0) {
             await pool.execute(
@@ -430,7 +456,7 @@ app.post('/api/main-client-payments', async (req, res) => {
             result = rows[0];
             console.log('Created new payment record');
         }
-        
+
         res.json(result);
     } catch (err) {
         console.error('Error in POST /api/main-client-payments:', err);
@@ -441,9 +467,9 @@ app.post('/api/main-client-payments', async (req, res) => {
 app.get('/api/main-client-payments/:mainClient', async (req, res) => {
     const { mainClient } = req.params;
     console.log(`Getting all paid items for: ${mainClient}`);
-    
+
     try {
-    
+
 
         const [rows] = await pool.execute(
             'SELECT item_id, item_name, quantity, date, is_paid FROM main_client_payments WHERE main_client = ? AND is_paid = 1',
@@ -494,7 +520,7 @@ app.post('/api/shipment-received', async (req, res) => {
              ON DUPLICATE KEY UPDATE is_received = true, received_date = CURRENT_DATE`,
             [shipment_id, branch, item_name]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM shipment_reminders WHERE shipment_id = ?', [shipment_id]);
         res.json(rows[0]);
     } catch (err) {
@@ -577,7 +603,7 @@ app.post('/api/shipment-payment', async (req, res) => {
              ON DUPLICATE KEY UPDATE paid_amount = paid_amount + ?`,
             [shipment_id, paid_amount, paid_amount]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM shipment_payments WHERE shipment_id = ?', [shipment_id]);
         res.json(rows[0]);
     } catch (err) {
@@ -592,13 +618,13 @@ app.delete('/api/users/:id/hard', async (req, res) => {
     try {
         const [userRes] = await pool.execute('SELECT username, role FROM users WHERE id = ?', [id]);
         const user = userRes[0];
-        
+
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
-        
+
         console.log(`Hard deleting user: ${user.username} with role: ${user.role}`);
-        
+
         if (user.role === 'branch') {
             await pool.execute('DELETE FROM branch_inventory WHERE branch = ?', [user.username]);
             await pool.execute('DELETE FROM shipments_to_branches WHERE branch = ?', [user.username]);
@@ -622,7 +648,7 @@ app.delete('/api/users/:id/hard', async (req, res) => {
             }
             console.log(`Deleting admin user: ${user.username}`);
         }
-        
+
         await pool.execute('DELETE FROM users WHERE id = ?', [id]);
         console.log(`User ${user.username} deleted successfully`);
         res.json({ message: 'User deleted successfully' });
@@ -686,7 +712,7 @@ app.put('/api/expenses/:id', async (req, res) => {
              WHERE id = ?`,
             [date, category, amount, description, user_role, username, id]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM expenses WHERE id = ?', [id]);
         res.json(rows[0]);
     } catch (err) {
@@ -770,7 +796,7 @@ app.put('/api/branch-inventory/:id', async (req, res) => {
                 [quantity, id]
             );
         }
-        
+
         const [rows] = await pool.execute('SELECT * FROM branch_inventory WHERE id = ?', [id]);
         res.json(rows[0]);
     } catch (err) {
@@ -795,11 +821,11 @@ app.get('/api/alerts/mainclient/:mainClient', async (req, res) => {
     try {
         const [branchesRes] = await pool.execute('SELECT username FROM users WHERE role = ? AND deleted = false', ['branch']);
         const branches = branchesRes.map(b => b.username);
-        
+
         if (branches.length === 0) {
             return res.json([]);
         }
-        
+
         const placeholders = branches.map(() => '?').join(',');
         const [rows] = await pool.execute(
             `SELECT * FROM low_stock_alerts WHERE branch IN (${placeholders}) ORDER BY date DESC`,
@@ -832,7 +858,7 @@ app.post('/api/alerts', async (req, res) => {
              VALUES (?, ?, ?, ?, ?, false)`,
             [branch, item_name, quantity, message, date]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM low_stock_alerts WHERE id = ?', [result.insertId]);
         res.json(rows[0]);
     } catch (err) {
@@ -847,7 +873,7 @@ app.put('/api/alerts/:id/resolve', async (req, res) => {
             'UPDATE low_stock_alerts SET resolved = true, resolved_date = CURRENT_DATE WHERE id = ?',
             [id]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM low_stock_alerts WHERE id = ?', [id]);
         res.json(rows[0]);
     } catch (err) {
@@ -900,7 +926,7 @@ app.post('/api/returns', async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [date, branch, item_name, quantity, price_per_unit, description, status || 'pending']
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM branch_returns WHERE id = ?', [result.insertId]);
         console.log('Return created:', rows[0]);
         res.json(rows[0]);
@@ -918,14 +944,14 @@ app.put('/api/returns/:id/approve', async (req, res) => {
         if (checkResult.length === 0) {
             return res.status(404).json({ error: 'Return not found' });
         }
-        
+
         console.log('Found return:', checkResult[0]);
-        
+
         await pool.execute(
             'UPDATE branch_returns SET status = ?, approved_date = CURRENT_DATE WHERE id = ?',
             ['approved', id]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM branch_returns WHERE id = ?', [id]);
         console.log('Return approved:', rows[0]);
         res.json(rows[0]);
@@ -943,12 +969,12 @@ app.put('/api/returns/:id/reject', async (req, res) => {
         if (checkResult.length === 0) {
             return res.status(404).json({ error: 'Return not found' });
         }
-        
+
         await pool.execute(
             'UPDATE branch_returns SET status = ? WHERE id = ?',
             ['rejected', id]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM branch_returns WHERE id = ?', [id]);
         console.log('Return rejected:', rows[0]);
         res.json(rows[0]);
@@ -965,7 +991,7 @@ app.put('/api/returns/:id/paid', async (req, res) => {
             'UPDATE branch_returns SET status = ?, paid_date = CURRENT_DATE WHERE id = ?',
             ['paid', id]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM branch_returns WHERE id = ?', [id]);
         res.json(rows[0]);
     } catch (err) {
@@ -996,7 +1022,7 @@ app.put('/api/shipments/:id', async (req, res) => {
              WHERE id = ?`,
             [date, branch, item, qty, selling_price, purchase_price, unique_key, id]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM shipments_to_branches WHERE id = ?', [id]);
         res.json(rows[0]);
     } catch (err) {
@@ -1017,17 +1043,17 @@ app.delete('/api/sales/:id', async (req, res) => {
 
 // ============= INVOICES API =============
 app.post('/api/invoices', async (req, res) => {
-    const { number, main_client, branch, date, total_items, total_value, 
-            all_time_total_items, all_time_total_value, all_time_paid, all_time_unpaid, items } = req.body;
+    const { number, main_client, branch, date, total_items, total_value,
+        all_time_total_items, all_time_total_value, all_time_paid, all_time_unpaid, items } = req.body;
     try {
         const [invoiceResult] = await pool.execute(
             `INSERT INTO invoices (number, main_client, branch, date, total_items, total_value, 
              all_time_total_items, all_time_total_value, all_time_paid, all_time_unpaid) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [number, main_client, branch, date, total_items, total_value, 
-             all_time_total_items, all_time_total_value, all_time_paid, all_time_unpaid]
+            [number, main_client, branch, date, total_items, total_value,
+                all_time_total_items, all_time_total_value, all_time_paid, all_time_unpaid]
         );
-        
+
         const invoiceId = invoiceResult.insertId;
         for (const item of items) {
             await pool.execute(
@@ -1036,7 +1062,7 @@ app.post('/api/invoices', async (req, res) => {
                 [invoiceId, item.item, item.qty, item.sellingPrice, item.sellingPrice * item.qty, item.date]
             );
         }
-        
+
         const [rows] = await pool.execute('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
         res.json(rows[0]);
     } catch (err) {
@@ -1050,7 +1076,7 @@ app.get('/api/invoices/admin', async (req, res) => {
         const [rows] = await pool.execute(
             `SELECT i.* FROM invoices i ORDER BY i.created_at DESC`
         );
-        
+
         const invoices = [];
         for (const inv of rows) {
             const [itemsRows] = await pool.execute(
@@ -1064,7 +1090,7 @@ app.get('/api/invoices/admin', async (req, res) => {
                 items: itemsRows
             });
         }
-        
+
         res.json(invoices);
     } catch (err) {
         console.error('Error in GET /api/invoices/admin:', err);
@@ -1075,20 +1101,20 @@ app.get('/api/invoices/admin', async (req, res) => {
 app.get('/api/invoices/mainclient/:mainClient', async (req, res) => {
     const { mainClient } = req.params;
     const { branch } = req.query;
-    
+
     try {
         let query = 'SELECT * FROM invoices WHERE main_client = ?';
         let params = [mainClient];
-        
+
         if (branch) {
             query += ' AND branch = ?';
             params.push(branch);
         }
-        
+
         query += ' ORDER BY created_at DESC';
-        
+
         const [rows] = await pool.execute(query, params);
-        
+
         const invoices = rows.map(inv => ({
             ...inv,
             total_items: parseInt(inv.total_items) || 0,
@@ -1098,7 +1124,7 @@ app.get('/api/invoices/mainclient/:mainClient', async (req, res) => {
             all_time_paid: parseFloat(inv.all_time_paid) || 0,
             all_time_unpaid: parseFloat(inv.all_time_unpaid) || 0
         }));
-        
+
         res.json(invoices);
     } catch (err) {
         console.error('Error in GET /api/invoices/mainclient:', err);
@@ -1113,12 +1139,12 @@ app.get('/api/invoices/:number', async (req, res) => {
         if (invoiceResult.length === 0) {
             return res.status(404).json({ error: 'Invoice not found' });
         }
-        
+
         const [itemsResult] = await pool.execute(
             'SELECT * FROM invoice_items WHERE invoice_id = ?',
             [invoiceResult[0].id]
         );
-        
+
         res.json({
             ...invoiceResult[0],
             items: itemsResult
@@ -1135,7 +1161,7 @@ app.delete('/api/invoices/:id', async (req, res) => {
         if (checkResult.length === 0) {
             return res.status(404).json({ error: 'Invoice not found' });
         }
-        
+
         await pool.execute('DELETE FROM invoices WHERE id = ?', [id]);
         console.log(`Invoice ${id} deleted successfully`);
         res.json({ message: 'Invoice deleted successfully' });
@@ -1171,7 +1197,7 @@ app.post('/api/discounts', async (req, res) => {
                 applied_date = VALUES(applied_date)`,
             [item_name, discount_percent, discount_amount, is_percent, new_price, original_price, applied_date]
         );
-        
+
         const [rows] = await pool.execute('SELECT * FROM discounts WHERE item_name = ?', [item_name]);
         res.json(rows[0]);
     } catch (err) {
@@ -1199,9 +1225,7 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-
-
 // Start server
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port: ${PORT}`);
 });

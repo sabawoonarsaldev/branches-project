@@ -256,7 +256,7 @@ async function refreshDataFromServer() {
         // ========== LOAD SHIPMENTS FROM DATABASE ==========
         let freshShipments = [];
         try {
-            const shipmentsRes = await fetch('http://localhost:5000/api/shipments');
+            const shipmentsRes = await fetch('/api/shipments');
             if (shipmentsRes.ok) {
                 freshShipments = await shipmentsRes.json();
                 console.log('Shipments loaded from DB:', freshShipments.length);
@@ -285,13 +285,13 @@ async function refreshDataFromServer() {
         // ========== LOAD INVOICES FROM DATABASE ==========
 try {
     if (currentUser && currentUser.role === 'admin') {
-        const invoicesRes = await fetch('http://localhost:5000/api/invoices/admin');
+        const invoicesRes = await fetch('/api/invoices/admin');
         if (invoicesRes.ok) {
             invoices = await invoicesRes.json();
             console.log('Invoices loaded for admin:', invoices.length);
         }
     } else if (currentUser && currentUser.role === 'mainclient') {
-        const invoicesRes = await fetch(`http://localhost:5000/api/invoices/mainclient/${currentUser.username}`);
+        const invoicesRes = await fetch(`/api/invoices/mainclient/${currentUser.username}`);
         if (invoicesRes.ok) {
             invoices = await invoicesRes.json();
             console.log('Invoices loaded for main client:', invoices.length);
@@ -306,7 +306,7 @@ try {
         try {
             const allBranches = freshUsers.filter(u => u.role === 'branch');
             for (const branch of allBranches) {
-                const receivedRes = await fetch(`http://localhost:5000/api/shipment-received/branch/${branch.username}`);
+                const receivedRes = await fetch(`/api/shipment-received/branch/${branch.username}`);
                 const receivedData = await receivedRes.json();
                 receivedData.forEach(rec => {
                     if (rec.shipment_id) {
@@ -323,7 +323,7 @@ try {
         try {
             const allMainClients = freshUsers.filter(u => u.role === 'mainclient');
             for (const mainClient of allMainClients) {
-                const paymentsRes = await fetch(`http://localhost:5000/api/main-client-payments/${mainClient.username}`);
+                const paymentsRes = await fetch(`/api/main-client-payments/${mainClient.username}`);
                 if (paymentsRes.ok) {
                     const paymentsData = await paymentsRes.json();
                     for (const payment of paymentsData) {
@@ -345,7 +345,7 @@ let freshShipmentPayments = {};
 try {
     if (currentUser && currentUser.role === 'admin') {
         // برای ادمین، همه پرداخت‌های همه شعب را لود کن
-        const paymentsRes = await fetch('http://localhost:5000/api/shipment-payments/all');
+        const paymentsRes = await fetch('/api/shipment-payments/all');
         if (paymentsRes.ok) {
             const paymentsData = await paymentsRes.json();
             for (const payment of paymentsData) {
@@ -354,7 +354,7 @@ try {
             console.log('All shipment payments loaded for admin:', Object.keys(freshShipmentPayments).length);
         }
     } else if (currentUser && currentUser.role === 'mainclient') {
-        const paymentsRes = await fetch(`http://localhost:5000/api/shipment-payments/mainclient/${currentUser.username}`);
+        const paymentsRes = await fetch(`/api/shipment-payments/mainclient/${currentUser.username}`);
         if (paymentsRes.ok) {
             const paymentsData = await paymentsRes.json();
             for (const payment of paymentsData) {
@@ -363,7 +363,7 @@ try {
             console.log('Shipment payments loaded for mainclient:', Object.keys(freshShipmentPayments).length);
         }
     } else if (currentUser && currentUser.role === 'branch') {
-        const paymentsRes = await fetch(`http://localhost:5000/api/shipment-payments/branch/${currentUser.username}`);
+        const paymentsRes = await fetch(`/api/shipment-payments/branch/${currentUser.username}`);
         if (paymentsRes.ok) {
             const paymentsData = await paymentsRes.json();
             for (const payment of paymentsData) {
@@ -384,7 +384,7 @@ shipmentPayments = freshShipmentPayments;
         try {
             const allMainClients = freshUsers.filter(u => u.role === 'mainclient');
             for (const mainClient of allMainClients) {
-                const distRes = await fetch(`http://localhost:5000/api/main-client-distributed/${mainClient.username}`);
+                const distRes = await fetch(`/api/main-client-distributed/${mainClient.username}`);
                 if (distRes.ok) {
                     const distData = await distRes.json();
                     console.log(`Distributed data for ${mainClient.username}:`, distData);
@@ -402,7 +402,7 @@ shipmentPayments = freshShipmentPayments;
         // ========== LOAD MAIN CLIENT EXPENSES FROM DATABASE ==========
         if (currentUser && currentUser.role === 'mainclient') {
             try {
-                const expensesRes = await fetch(`http://localhost:5000/api/expenses/mainclient/${currentUser.username}`);
+                const expensesRes = await fetch(`/api/expenses/mainclient/${currentUser.username}`);
                 if (expensesRes.ok) {
                     const expensesData = await expensesRes.json();
                     mainClientExpenses[currentUser.username] = expensesData.map(e => ({
@@ -424,7 +424,7 @@ shipmentPayments = freshShipmentPayments;
         // ========== LOAD ALL EXPENSES FOR MAIN CLIENTS (FOR ADMIN VIEW) ==========
         if (currentUser && currentUser.role === 'admin') {
             try {
-                const allExpensesRes = await fetch('http://localhost:5000/api/expenses/all');
+                const allExpensesRes = await fetch('/api/expenses/all');
                 if (allExpensesRes.ok) {
                     const allExpenses = await allExpensesRes.json();
                     for (const exp of allExpenses) {
@@ -454,7 +454,7 @@ shipmentPayments = freshShipmentPayments;
         // ========== LOAD BRANCH RETURNS FROM DATABASE ==========
         try {
             if (currentUser && currentUser.role === 'mainclient') {
-                const returnsRes = await fetch(`http://localhost:5000/api/returns/mainclient/${currentUser.username}`);
+                const returnsRes = await fetch(`/api/returns/mainclient/${currentUser.username}`);
                 if (returnsRes.ok) {
                     const returnsData = await returnsRes.json();
                     branchReturns = returnsData.map(r => ({
@@ -470,7 +470,7 @@ shipmentPayments = freshShipmentPayments;
                     console.log('Branch returns loaded:', branchReturns.length);
                 }
             } else if (currentUser && currentUser.role === 'branch') {
-                const returnsRes = await fetch(`http://localhost:5000/api/returns/branch/${currentUser.username}`);
+                const returnsRes = await fetch(`/api/returns/branch/${currentUser.username}`);
                 if (returnsRes.ok) {
                     const returnsData = await returnsRes.json();
                     branchReturns = returnsData.map(r => ({
@@ -493,7 +493,7 @@ shipmentPayments = freshShipmentPayments;
         // ========== LOAD LOW STOCK ALERTS FROM DATABASE ==========
         if (currentUser && currentUser.role === 'mainclient') {
             try {
-                const alertsRes = await fetch(`http://localhost:5000/api/alerts/mainclient/${currentUser.username}`);
+                const alertsRes = await fetch(`/api/alerts/mainclient/${currentUser.username}`);
                 if (alertsRes.ok) {
                     const alertsData = await alertsRes.json();
                     lowStockAlerts = alertsData.map(a => ({
@@ -516,7 +516,7 @@ shipmentPayments = freshShipmentPayments;
         let freshBranchInventory = {};
         if (currentUser && currentUser.role === 'branch') {
             try {
-                const branchInvRes = await fetch(`http://localhost:5000/api/branch-inventory/${currentUser.username}`);
+                const branchInvRes = await fetch(`/api/branch-inventory/${currentUser.username}`);
                 const branchInvData = await branchInvRes.json();
                 if (branchInvData && branchInvData.length > 0) {
                     freshBranchInventory[currentUser.username] = branchInvData.map(b => ({
@@ -545,7 +545,7 @@ shipmentPayments = freshShipmentPayments;
 
         // ========== LOAD DISCOUNTS FROM DATABASE ==========
 try {
-    const discountsRes = await fetch('http://localhost:5000/api/discounts');
+    const discountsRes = await fetch('/api/discounts');
     if (discountsRes.ok) {
         const discountsData = await discountsRes.json();
         itemDiscounts = {};
@@ -609,7 +609,7 @@ try {
       async function loadData() {
     try {
         // Load inventory from API
-        const inventoryRes = await fetch('http://localhost:5000/api/inventory');
+        const inventoryRes = await fetch('/api/inventory');
         const rawInventory = await inventoryRes.json();
         
         // Convert string numbers to actual numbers
@@ -624,7 +624,7 @@ try {
         }));
         
         // Load users from API
-        const usersRes = await fetch('http://localhost:5000/api/users');
+        const usersRes = await fetch('/api/users');
         const users = await usersRes.json();
         
         // Load shipments from API
@@ -632,7 +632,7 @@ try {
         // Load shipments from API
 let shipments = [];
 try {
-    const shipmentsRes = await fetch('http://localhost:5000/api/shipments');
+    const shipmentsRes = await fetch('/api/shipments');
     if (shipmentsRes.ok) {
         const rawShipments = await shipmentsRes.json();
         console.log('Initial shipments loaded:', rawShipments.length);
@@ -1383,7 +1383,7 @@ function updateDailyPayment(date, shipment, isPaid, amount) {
 async function getMainClientItems() {
     // دریافت distributed quantities از دیتابیس
     try {
-        const distRes = await fetch(`http://localhost:5000/api/main-client-distributed/${currentUser.username}`);
+        const distRes = await fetch(`/api/main-client-distributed/${currentUser.username}`);
         if (distRes.ok) {
             const distData = await distRes.json();
             for (const item of distData) {
@@ -2417,7 +2417,7 @@ window.saveNewItem = async function() {
     }
     
     try {
-        const response = await fetch('http://localhost:5000/api/inventory', {
+        const response = await fetch('/api/inventory', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2484,7 +2484,7 @@ window.saveNewItem = async function() {
 
         async function renderFinance() {
     try {
-        const response = await fetch('http://localhost:5000/api/expenses/all');
+        const response = await fetch('/api/expenses/all');
         if (response.ok) {
             const allExpenses = await response.json();
             
@@ -2651,7 +2651,7 @@ window.saveNewItem = async function() {
         // بارگذاری Expenses کلاینت اصلی
         let mainClientExpensesData = {};
         try {
-            const response = await fetch('http://localhost:5000/api/expenses/all');
+            const response = await fetch('/api/expenses/all');
             if (response.ok) {
                 const allExpenses = await response.json();
                 for (const exp of allExpenses) {
@@ -2723,7 +2723,7 @@ window.saveNewItem = async function() {
         async function renderExpenses() {
     // ✅ فقط Expenses ادمین را از دیتابیس لود کن
     try {
-        const response = await fetch('http://localhost:5000/api/expenses/admin');
+        const response = await fetch('/api/expenses/admin');
         if (response.ok) {
             const dbExpenses = await response.json();
             // فقط expenses با user_role = 'admin' را فیلتر کن
@@ -2897,7 +2897,7 @@ window.saveNewExpense = async function() {
     }
     
     try {
-        const response = await fetch('http://localhost:5000/api/expenses', {
+        const response = await fetch('/api/expenses', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newExpense)
@@ -2988,7 +2988,7 @@ window.updateExpense = async function(id) {
     
     try {
         // Update in database via API
-        const response = await fetch(`http://localhost:5000/api/expenses/${id}`, {
+        const response = await fetch(`/api/expenses/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updatedExpense)
@@ -3020,7 +3020,7 @@ window.deleteExpense = async function(id) {
     if (confirm('Are you sure you want to delete this expense?')) {
         try {
             // Delete from database via API
-            const response = await fetch(`http://localhost:5000/api/expenses/${id}`, {
+            const response = await fetch(`/api/expenses/${id}`, {
                 method: 'DELETE'
             });
             
@@ -3806,7 +3806,7 @@ function showBranchReportInAdmin(branch) {
         async function renderAdminInvoices() {
     // بارگذاری invoices از دیتابیس
     try {
-        const response = await fetch('http://localhost:5000/api/invoices/admin');
+        const response = await fetch('/api/invoices/admin');
         if (response.ok) {
             invoices = await response.json();
             console.log('Invoices loaded for admin:', invoices);
@@ -3902,7 +3902,7 @@ function showBranchReportInAdmin(branch) {
         window.deleteAdminInvoice = async function(invoiceId) {
     if (confirm('Are you sure you want to delete this invoice? This action cannot be undone!')) {
         try {
-            const response = await fetch(`http://localhost:5000/api/invoices/${invoiceId}`, {
+            const response = await fetch(`/api/invoices/${invoiceId}`, {
                 method: 'DELETE'
             });
             
@@ -3926,7 +3926,7 @@ function showBranchReportInAdmin(branch) {
 
 window.viewAdminInvoice = async function(invoiceNumber) {
     try {
-        const response = await fetch(`http://localhost:5000/api/invoices/${invoiceNumber}`);
+        const response = await fetch(`/api/invoices/${invoiceNumber}`);
         if (response.ok) {
             const invoice = await response.json();
             
@@ -4366,7 +4366,7 @@ async function renderMainClientFinance() {
     let clientExps = [];
     
     try {
-        const response = await fetch(`http://localhost:5000/api/expenses/mainclient/${mainClient}`);
+        const response = await fetch(`/api/expenses/mainclient/${mainClient}`);
         if (response.ok) {
             const dbExpenses = await response.json();
             clientExps = dbExpenses.map(e => ({
@@ -4552,7 +4552,7 @@ async function renderMainClientExpenses() {
     // ✅ بارگذاری expenses از دیتابیس
     let expenses = [];
     try {
-        const response = await fetch(`http://localhost:5000/api/expenses/mainclient/${mainClient}`);
+        const response = await fetch(`/api/expenses/mainclient/${mainClient}`);
         if (response.ok) {
             const dbExpenses = await response.json();
             expenses = dbExpenses.map(e => ({
@@ -4705,7 +4705,7 @@ async function renderMainClientExpenses() {
     }
     
     try {
-        const response = await fetch('http://localhost:5000/api/expenses', {
+        const response = await fetch('/api/expenses', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newExpense)
@@ -4799,7 +4799,7 @@ window.updateMainClientExpense = async function(id) {
     };
     
     try {
-        const response = await fetch(`http://localhost:5000/api/expenses/${id}`, {
+        const response = await fetch(`/api/expenses/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updatedExpense)
@@ -4832,7 +4832,7 @@ window.deleteMainClientExpense = async function(id) {
         let mainClient = currentUser.username;
         
         try {
-            const response = await fetch(`http://localhost:5000/api/expenses/${id}`, {
+            const response = await fetch(`/api/expenses/${id}`, {
                 method: 'DELETE'
             });
             
@@ -5128,7 +5128,7 @@ console.log('Current date ISO:', new Date().toISOString().split('T')[0]);
     
     try {
         // 1. به روز رسانی distributed quantity در دیتابیس
-        const distResponse = await fetch('http://localhost:5000/api/main-client-distributed', {
+        const distResponse = await fetch('/api/main-client-distributed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -5177,7 +5177,7 @@ console.log('Current date ISO:', new Date().toISOString().split('T')[0]);
         });
         
         // 5. اضافه کردن به shipment payments
-        await fetch('http://localhost:5000/api/shipment-payment', {
+        await fetch('/api/shipment-payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -5780,7 +5780,7 @@ async function processShipmentPayment(shipment, paymentAmount) {
     }
     
     try {
-        const response = await fetch('http://localhost:5000/api/shipment-payment', {
+        const response = await fetch('/api/shipment-payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -6156,7 +6156,7 @@ function displayBillingData(branch, date) {
 
     // ✅ ذخیره در دیتابیس
     try {
-        const response = await fetch('http://localhost:5000/api/invoices', {
+        const response = await fetch('/api/invoices', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -6324,7 +6324,7 @@ async function renderMainClientInvoices() {
     
     // بارگذاری invoices از دیتابیس
     try {
-        const response = await fetch(`http://localhost:5000/api/invoices/mainclient/${currentUser.username}`);
+        const response = await fetch(`/api/invoices/mainclient/${currentUser.username}`);
         if (response.ok) {
             const data = await response.json();
             invoices = data;
@@ -6450,7 +6450,7 @@ window.filterMainClientInvoices = function() {
 
 window.viewMainClientInvoice = async function(invoiceNumber) {
     try {
-        const response = await fetch(`http://localhost:5000/api/invoices/${invoiceNumber}`);
+        const response = await fetch(`/api/invoices/${invoiceNumber}`);
         if (response.ok) {
             const invoice = await response.json();
             
@@ -6550,7 +6550,7 @@ window.viewMainClientInvoice = async function(invoiceNumber) {
     let clientExps = [];
     
     try {
-        const response = await fetch(`http://localhost:5000/api/expenses/mainclient/${mainClient}`);
+        const response = await fetch(`/api/expenses/mainclient/${mainClient}`);
         if (response.ok) {
             const dbExpenses = await response.json();
             clientExps = dbExpenses.map(e => ({
@@ -6864,7 +6864,7 @@ async function displayBranchReport(branch, startDate, endDate, period) {
     let paymentMap = {};
     
     try {
-        const branchInvRes = await fetch(`http://localhost:5000/api/branch-inventory/${branch}`);
+        const branchInvRes = await fetch(`/api/branch-inventory/${branch}`);
         const branchInvData = await branchInvRes.json();
         branchInv = branchInvData.map(b => ({
             name: b.item_name,
@@ -6873,7 +6873,7 @@ async function displayBranchReport(branch, startDate, endDate, period) {
             purchasePrice: parseFloat(b.purchase_price)
         }));
         
-        const shipmentsRes = await fetch('http://localhost:5000/api/shipments');
+        const shipmentsRes = await fetch('/api/shipments');
         const allShipmentsData = await shipmentsRes.json();
         allShipments = allShipmentsData
             .filter(s => s.branch === branch)
@@ -7094,7 +7094,7 @@ async function displayBranchReport(branch, startDate, endDate) {
     
     try {
         // Get branch inventory from API
-        const branchInvRes = await fetch(`http://localhost:5000/api/branch-inventory/${branch}`);
+        const branchInvRes = await fetch(`/api/branch-inventory/${branch}`);
         const branchInvData = await branchInvRes.json();
         branchInv = branchInvData.map(b => ({
             name: b.item_name,
@@ -7104,7 +7104,7 @@ async function displayBranchReport(branch, startDate, endDate) {
         }));
         
         // Get shipments for this branch from API
-        const shipmentsRes = await fetch('http://localhost:5000/api/shipments');
+        const shipmentsRes = await fetch('/api/shipments');
         const allShipmentsData = await shipmentsRes.json();
         allShipments = allShipmentsData
             .filter(s => s.branch === branch)
@@ -7122,7 +7122,7 @@ async function displayBranchReport(branch, startDate, endDate) {
         // Get payment information for shipments
         for (const shipment of allShipments) {
             try {
-                const paymentRes = await fetch(`http://localhost:5000/api/shipment-payment/${encodeURIComponent(shipment.uniqueKey)}`);
+                const paymentRes = await fetch(`/api/shipment-payment/${encodeURIComponent(shipment.uniqueKey)}`);
                 if (paymentRes.ok) {
                     const paymentData = await paymentRes.json();
                     paymentMap[shipment.uniqueKey] = {
@@ -7305,7 +7305,7 @@ async function displayBranchReport(branch, startDate, endDate) {
         async function renderMainClientUsers() {
     // ✅ بارگذاری کاربران از دیتابیس
     try {
-        const response = await fetch('http://localhost:5000/api/users');
+        const response = await fetch('/api/users');
         if (response.ok) {
             users = await response.json();
             console.log('Users loaded from DB:', users.length);
@@ -7407,7 +7407,7 @@ async function displayBranchReport(branch, startDate, endDate) {
 
     // بررسی وجود کاربر در دیتابیس
     try {
-        const checkResponse = await fetch(`http://localhost:5000/api/users`);
+        const checkResponse = await fetch(`/api/users`);
         const existingUsers = await checkResponse.json();
         if (existingUsers.some(u => u.username === username && !u.deleted)) {
             alert('Username already exists!');
@@ -7418,7 +7418,7 @@ async function displayBranchReport(branch, startDate, endDate) {
     }
 
     try {
-        const response = await fetch('http://localhost:5000/api/users', {
+        const response = await fetch('/api/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -7474,7 +7474,7 @@ window.mainClientChangePassword = async function(id) {
     let newPass = prompt('Enter new password for ' + user.username + ':');
     if (newPass && newPass.trim()) {
         try {
-            const response = await fetch(`http://localhost:5000/api/users/${id}`, {
+            const response = await fetch(`/api/users/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -7509,7 +7509,7 @@ window.mainClientChangePassword = async function(id) {
     let newFrozenState = !user.frozen;
     
     try {
-        const response = await fetch(`http://localhost:5000/api/users/${id}`, {
+        const response = await fetch(`/api/users/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -7543,7 +7543,7 @@ window.mainClientToggleBlock = async function(id) {
     let newBlockedState = !user.blocked;
     
     try {
-        const response = await fetch(`http://localhost:5000/api/users/${id}`, {
+        const response = await fetch(`/api/users/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -7577,7 +7577,7 @@ window.mainClientToggleBlock = async function(id) {
     if (confirm(`Delete branch "${user.username}" permanently?`)) {
         try {
             // Hard delete از دیتابیس
-            const response = await fetch(`http://localhost:5000/api/users/${id}/hard`, {
+            const response = await fetch(`/api/users/${id}/hard`, {
                 method: 'DELETE'
             });
             
@@ -7763,7 +7763,7 @@ function displayMainClientShipments(shipments) {
         async function renderMainClientAlerts() {
     // ✅ بارگذاری آلرت‌ها از دیتابیس
     try {
-        const response = await fetch(`http://localhost:5000/api/alerts/mainclient/${currentUser.username}`);
+        const response = await fetch(`/api/alerts/mainclient/${currentUser.username}`);
         if (response.ok) {
             const alerts = await response.json();
             // تبدیل به فرمت مورد استفاده در فرانت‌اند
@@ -7822,7 +7822,7 @@ function displayMainClientShipments(shipments) {
 
 window.mainClientResolveAlert = async function(alertId) {
     try {
-        const response = await fetch(`http://localhost:5000/api/alerts/${alertId}/resolve`, {
+        const response = await fetch(`/api/alerts/${alertId}/resolve`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' }
         });
@@ -7998,7 +7998,7 @@ window.approveReturn = async function(returnId) {
     
     try {
         // 1. آپدیت وضعیت برگشت در دیتابیس
-        const approveResponse = await fetch(`http://localhost:5000/api/returns/${returnId}/approve`, {
+        const approveResponse = await fetch(`/api/returns/${returnId}/approve`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' }
         });
@@ -8014,7 +8014,7 @@ window.approveReturn = async function(returnId) {
         let returnValue = quantity * pricePerUnit;
         
         // ========== 2. آپدیت branch_inventory ==========
-        const branchInvRes = await fetch(`http://localhost:5000/api/branch-inventory/${branch}`);
+        const branchInvRes = await fetch(`/api/branch-inventory/${branch}`);
         const branchItems = await branchInvRes.json();
         
         let remainingToRemove = quantity;
@@ -8026,7 +8026,7 @@ window.approveReturn = async function(returnId) {
                 let newOriginalQuantity = (item.original_quantity || item.quantity) - removeFromThis;
                 if (newOriginalQuantity < 0) newOriginalQuantity = 0;
                 
-                await fetch(`http://localhost:5000/api/branch-inventory/${item.id}`, {
+                await fetch(`/api/branch-inventory/${item.id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -8108,14 +8108,14 @@ window.approveReturn = async function(returnId) {
                 const index = mainClientToBranchShipments.findIndex(s => s.id === shipment.id);
                 if (index !== -1) mainClientToBranchShipments.splice(index, 1);
                 
-                await fetch(`http://localhost:5000/api/shipments/${shipment.id}`, {
+                await fetch(`/api/shipments/${shipment.id}`, {
                     method: 'DELETE'
                 }).catch(err => console.log('Error deleting shipment:', err));
                 
                 // حذف از shipmentPayments
                 if (shipment.uniqueKey) {
                     delete shipmentPayments[shipment.uniqueKey];
-                    await fetch(`http://localhost:5000/api/shipment-payment/${shipment.uniqueKey}`, {
+                    await fetch(`/api/shipment-payment/${shipment.uniqueKey}`, {
                         method: 'DELETE'
                     }).catch(err => console.log('Error deleting payment:', err));
                 }
@@ -8123,7 +8123,7 @@ window.approveReturn = async function(returnId) {
                 // آپدیت shipment
                 shipment.qty = newQty;
                 
-                await fetch(`http://localhost:5000/api/shipments/${shipment.id}`, {
+                await fetch(`/api/shipments/${shipment.id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -8140,12 +8140,12 @@ window.approveReturn = async function(returnId) {
                 // آپدیت payment در دیتابیس
                 if (shipment.uniqueKey) {
                     // حذف رکورد قبلی
-                    await fetch(`http://localhost:5000/api/shipment-payment/${shipment.uniqueKey}`, {
+                    await fetch(`/api/shipment-payment/${shipment.uniqueKey}`, {
                         method: 'DELETE'
                     }).catch(err => console.log('Error deleting old payment:', err));
                     
                     // ذخیره رکورد جدید
-                    const updateResponse = await fetch('http://localhost:5000/api/shipment-payment', {
+                    const updateResponse = await fetch('/api/shipment-payment', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
@@ -8177,7 +8177,7 @@ window.approveReturn = async function(returnId) {
             let newDistributed = Math.max(0, currentDistributed - quantity);
             mainClientDistributed[distributedKey] = newDistributed;
             
-            await fetch('http://localhost:5000/api/main-client-distributed', {
+            await fetch('/api/main-client-distributed', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -8188,7 +8188,7 @@ window.approveReturn = async function(returnId) {
             });
         } else {
             // اگر ایتم وجود ندارد، آن را اضافه کن
-            const newItemRes = await fetch('http://localhost:5000/api/inventory', {
+            const newItemRes = await fetch('/api/inventory', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -8272,7 +8272,7 @@ window.rejectReturn = async function(returnId) {
     
     if (confirm(`Reject return of ${returnRequest.quantity} ${returnRequest.itemName} from ${returnRequest.branch}?`)) {
         try {
-            const response = await fetch(`http://localhost:5000/api/returns/${returnId}/reject`, {
+            const response = await fetch(`/api/returns/${returnId}/reject`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -8339,7 +8339,7 @@ window.rejectReturn = async function(returnId) {
     let branch = currentUser.username;
 
         try {
-        const response = await fetch(`http://localhost:5000/api/branch-inventory/${branch}`);
+        const response = await fetch(`/api/branch-inventory/${branch}`);
         if (response.ok) {
             const data = await response.json();
             branchInventory[branch] = data.map(item => ({
@@ -8576,7 +8576,7 @@ window.submitReturn = async function(itemName, pricePerUnit) {
     }
     
     try {
-        const response = await fetch('http://localhost:5000/api/returns', {
+        const response = await fetch('/api/returns', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -8907,7 +8907,7 @@ window.lowStockAlert = async function(uniqueId, itemName, currentQuantity) {
     let alertMessage = `Low stock alert for ${itemName}. Current stock: ${currentQuantity} units.`;
     
     try {
-        const response = await fetch('http://localhost:5000/api/alerts', {
+        const response = await fetch('/api/alerts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -9144,7 +9144,7 @@ async function renderBranchBilling() {
     
     // First, load sales from database
     try {
-        const response = await fetch(`http://localhost:5000/api/sales/${branch}`);
+        const response = await fetch(`/api/sales/${branch}`);
         if (response.ok) {
             const salesData = await response.json();
             
@@ -9692,7 +9692,7 @@ window.recordSale = async function() {
         let newQuantity = item.quantity - takeFromThis;
         
         try {
-            const updateResponse = await fetch(`http://localhost:5000/api/branch-inventory/${item.id}`, {
+            const updateResponse = await fetch(`/api/branch-inventory/${item.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ quantity: newQuantity })
@@ -9732,7 +9732,7 @@ window.recordSale = async function() {
     };
     
     try {
-        const saleResponse = await fetch('http://localhost:5000/api/sales', {
+        const saleResponse = await fetch('/api/sales', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(saleData)
@@ -9867,7 +9867,7 @@ window.updateItem = async function(id) {
     }
     
     try {
-        const response = await fetch(`http://localhost:5000/api/inventory/${id}`, {
+        const response = await fetch(`/api/inventory/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -10010,7 +10010,7 @@ window.markMainClientItemAsPaidFromInventory = async function(itemName, quantity
     // ====================================
     
     try {
-        const response = await fetch('http://localhost:5000/api/main-client-payments', {
+        const response = await fetch('/api/main-client-payments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -10105,7 +10105,7 @@ async function isMainClientItemPaid(item) {
     
     // اگر در محلی نبود، از دیتابیس چک کن
     try {
-        const response = await fetch(`http://localhost:5000/api/main-client-payments/${currentUser.username}/${item.id}/${encodeURIComponent(item.name)}/${item.quantity}`);
+        const response = await fetch(`/api/main-client-payments/${currentUser.username}/${item.id}/${encodeURIComponent(item.name)}/${item.quantity}`);
         if (response.ok) {
             const status = await response.json();
             if (status.is_paid === true || status.is_paid === 1) {
@@ -10128,7 +10128,7 @@ async function renderBranchExpenses() {
     
     let expenses = [];
     try {
-        const response = await fetch(`http://localhost:5000/api/expenses/branch/${branch}`);
+        const response = await fetch(`/api/expenses/branch/${branch}`);
         console.log('Expenses response status:', response.status);
         if (response.ok) {
             const dbExpenses = await response.json();
@@ -10306,7 +10306,7 @@ window.saveBranchExpense = async function() {
     }
     
     try {
-        const response = await fetch('http://localhost:5000/api/expenses', {
+        const response = await fetch('/api/expenses', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newExpense)
@@ -10368,7 +10368,7 @@ window.saveBranchExpense = async function() {
     
     try {
         // Save to database via API
-        const response = await fetch('http://localhost:5000/api/expenses', {
+        const response = await fetch('/api/expenses', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newExpense)
@@ -10466,7 +10466,7 @@ window.updateBranchExpense = async function(id) {
     };
     
     try {
-        const response = await fetch(`http://localhost:5000/api/expenses/${id}`, {
+        const response = await fetch(`/api/expenses/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updatedExpense)
@@ -10498,7 +10498,7 @@ window.deleteBranchExpense = async function(id) {
         let branch = currentUser.username;
         
         try {
-            const response = await fetch(`http://localhost:5000/api/expenses/${id}`, {
+            const response = await fetch(`/api/expenses/${id}`, {
                 method: 'DELETE'
             });
             
@@ -10717,7 +10717,7 @@ async function renderBranchFinance() {
     
     // ✅ بارگذاری فروش از دیتابیس
     try {
-        const salesResponse = await fetch(`http://localhost:5000/api/sales/${branch}`);
+        const salesResponse = await fetch(`/api/sales/${branch}`);
         if (salesResponse.ok) {
             const salesData = await salesResponse.json();
             salesHistory = salesData.map(s => ({
@@ -10741,7 +10741,7 @@ async function renderBranchFinance() {
     
     // ✅ بارگذاری Expenses از دیتابیس
     try {
-        const expensesResponse = await fetch(`http://localhost:5000/api/expenses/branch/${branch}`);
+        const expensesResponse = await fetch(`/api/expenses/branch/${branch}`);
         if (expensesResponse.ok) {
             const expensesData = await expensesResponse.json();
             branchExpenses[branch] = expensesData.map(e => ({
@@ -11403,7 +11403,7 @@ window.deleteUser = async function(id) {
     if (confirm(confirmMessage)) {
         try {
             console.log(`Deleting user ${user.username} with ID ${id}...`);
-            const response = await fetch(`http://localhost:5000/api/users/${id}/hard`, {
+            const response = await fetch(`/api/users/${id}/hard`, {
                 method: 'DELETE'
             });
             
@@ -11518,7 +11518,7 @@ async function loadBranchInventory() {
                 inventory = branchInventory[client];
             } else {
                 try {
-                    const branchInvRes = await fetch(`http://localhost:5000/api/branch-inventory/${client}`);
+                    const branchInvRes = await fetch(`/api/branch-inventory/${client}`);
                     const branchInvData = await branchInvRes.json();
                     inventory = branchInvData.map(b => ({
                         id: b.id,
@@ -12274,7 +12274,7 @@ window.saveNewUser = async function(role) {
     }
 
     try {
-        const response = await fetch('http://localhost:5000/api/login', {
+        const response = await fetch('/api/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password, role })
@@ -12346,7 +12346,7 @@ async function renderAdminHistory() {
 
         for (let client of mainClients) {
             try {
-                const response = await fetch(`http://localhost:5000/api/main-client-payments/${client.username}`);
+                const response = await fetch(`/api/main-client-payments/${client.username}`);
                 if (response.ok) {
                     const payments = await response.json();
                     const found = payments.find(p => 
@@ -12458,7 +12458,7 @@ window.searchAdminHistory = async function() {
         // Check each main client's payment status
         for (let client of mainClients) {
             try {
-                const response = await fetch(`http://localhost:5000/api/main-client-payments/${client.username}/${encodeURIComponent(item.name)}/${item.quantity}`);
+                const response = await fetch(`/api/main-client-payments/${client.username}/${encodeURIComponent(item.name)}/${item.quantity}`);
                 if (response.ok) {
                     const status = await response.json();
                     if (status.is_paid === true) {
@@ -12516,7 +12516,7 @@ window.searchAdminHistory = async function() {
         
         let isPaid = false;
         try {
-            const response = await fetch(`http://localhost:5000/api/main-client-payments/${currentUser.username}/${encodeURIComponent(item.name)}/${item.quantity}`);
+            const response = await fetch(`/api/main-client-payments/${currentUser.username}/${encodeURIComponent(item.name)}/${item.quantity}`);
             if (response.ok) {
                 const status = await response.json();
                 isPaid = status.is_paid === true;
