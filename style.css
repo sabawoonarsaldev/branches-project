@@ -1,0 +1,833 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+}
+
+
+body {
+    background: #f0fdf4;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 20px;
+    overflow-x: hidden;
+}
+
+
+/* ==================== LOGIN ==================== */
+.login-wrapper { max-width: 420px; width: 100%; }
+
+.login-card {
+    background: white;
+    border-radius: 32px;
+    padding: 40px;
+    box-shadow: 0 25px 50px -12px rgba(34, 197, 94, 0.25);
+}
+
+.login-header { text-align: center; margin-bottom: 32px; }
+
+.login-header .logo img {
+    width: 80px; height: 80px;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
+}
+
+.login-header .logo i { color: #08f35e; margin-right: 8px; }
+.company-name { font-size: 18px; color: #166534; margin-top: 10px; }
+
+.password-field { position: relative; width: 100%; }
+
+.password-field input {
+    width: 100%;
+    padding: 12px 40px 12px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 14px;
+}
+
+.toggle-password {
+    position: absolute; right: 12px; top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer; color: #64748b; font-size: 18px; z-index: 2;
+}
+.toggle-password:hover { color: #166534; }
+
+.login-tabs {
+    display: flex; gap: 8px;
+    background: #f0fdf4; padding: 4px;
+    border-radius: 40px; margin-bottom: 24px;
+}
+
+.tab-btn {
+    flex: 1; padding: 14px; border: none;
+    background: transparent; border-radius: 40px;
+    font-weight: 600; cursor: pointer; color: #166534; transition: all 0.2s;
+}
+
+.tab-btn.active {
+    background: white; color: #22c55e;
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.1);
+}
+
+.input-field { margin-bottom: 20px; }
+.input-field label { display: block; font-size: 14px; font-weight: 500; color: #166534; margin-bottom: 6px; }
+
+.input-field input {
+    width: 100%; padding: 16px;
+    border: 2px solid #bbf7d0; border-radius: 16px;
+    font-size: 15px; transition: all 0.2s;
+}
+.input-field input:focus { border-color: #22c55e; outline: none; }
+
+.login-btn {
+    width: 100%; padding: 18px;
+    background: #22c55e; color: white; border: none;
+    border-radius: 16px; font-weight: 600; font-size: 16px;
+    cursor: pointer; margin-top: 8px; transition: background 0.2s;
+}
+.login-btn:hover { background: #16a34a; }
+
+.demo-box {
+    margin-top: 24px; padding: 20px;
+    background: #f0fdf4; border-radius: 16px;
+    font-size: 13px; color: #166534;
+}
+
+/* ==================== APP ==================== */
+
+.app-container {
+    width: 100%; max-width: 1600px;
+    background: white; border-radius: 40px;
+    box-shadow: 0 30px 60px rgba(34, 197, 94, 0.15);
+    display: none; overflow: hidden;
+    align-self: flex-start;
+}
+
+
+.app-header {
+    padding: 20px 32px; background: white;
+    border-bottom: 2px solid #f0fdf4;
+    display: flex; justify-content: space-between;
+    align-items: center; flex-wrap: wrap; gap: 10px;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-logo { width: 35px; height: 35px; object-fit: contain; }
+.brand i { color: #22c55e; margin-right: 8px; }
+
+.user-menu {
+    display: flex; align-items: center; gap: 16px;
+    background: #f0fdf4; padding: 10px 24px; border-radius: 40px;
+}
+.user-menu button { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 16px; }
+
+/* ==================== DASHBOARD ==================== */
+
+.dashboard { display: flex; min-height: 750px; }
+
+
+.sidebar {
+    width: 280px; background: #f0fdf4;
+    border-right: 2px solid #bbf7d0;
+    padding: 24px 16px; flex-shrink: 0;
+}
+
+.nav-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 20px; margin-bottom: 4px;
+    border-radius: 16px; color: #166534;
+    font-weight: 500; cursor: pointer; transition: all 0.2s;
+}
+.nav-item i { width: 24px; color: #22c55e; }
+.nav-item.active { background: #22c55e; color: white; }
+.nav-item.active i { color: white; }
+.nav-item.logout { margin-top: 40px; color: #ef4444; }
+.nav-item.logout i { color: #ef4444; }
+
+
+.content-area {
+    flex: 1; padding: 32px;
+    background: white; overflow-y: auto; min-width: 0;
+}
+
+
+/* ==================== TYPOGRAPHY ==================== */
+.page-title { font-size: 32px; font-weight: 700; color: #166534; margin-bottom: 28px; }
+.profit-text { color: #22c55e; }
+.loss-text { color: #ef4444; }
+.total-value { font-weight: 700; color: #22c55e; }
+.grand-total { background: #dcfce7; font-weight: 700; }
+.status-paid { color: #22c55e; font-weight: 600; }
+.status-unpaid { color: #ef4444; font-weight: 600; }
+.status-partial { color: #f59e0b; font-weight: 600; }
+.reminder-amount { color: #f59e0b; font-weight: 600; }
+.reminder-paid { color: #22c55e; font-weight: 600; }
+.reminder-unpaid { color: #ef4444; font-weight: 600; }
+.reminder-info { font-size: 12px; color: #64748b; margin-top: 4px; }
+.reminder-amount.unpaid-value { color: #f59e0b; }
+.reminder-amount.paid-value { color: #22c55e; }
+.remainder-stock { color: #f59e0b; font-weight: 600; }
+.original-stock { background-color: #f0fdf4; color: #166534; font-weight: 600; }
+.remaining-stock { background-color: #fef3c7; color: #92400e; font-weight: 600; }
+.original-stock small, .remaining-stock small { font-weight: normal; font-size: 10px; color: #64748b; }
+
+/* ==================== SEARCH ==================== */
+.search-container {
+    margin-bottom: 24px; display: flex;
+    gap: 16px; align-items: center; flex-wrap: wrap;
+}
+.search-box { flex: 1; min-width: 200px; position: relative; }
+.search-box i { position: absolute; left: 20px; top: 50%; transform: translateY(-50%); color: #86efac; font-size: 18px; }
+.search-box input {
+    width: 100%; padding: 18px 20px 18px 50px;
+    border: 2px solid #bbf7d0; border-radius: 20px; font-size: 16px; transition: all 0.2s;
+}
+.search-box input:focus { border-color: #22c55e; outline: none; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1); }
+.search-results { font-size: 14px; color: #166534; white-space: nowrap; }
+
+/* ==================== STATS GRID ==================== */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 24px; margin-bottom: 32px;
+}
+
+.stat-card {
+    background: #f0fdf4; border-radius: 24px;
+    padding: 28px; border: 2px solid #bbf7d0;
+    position: relative; overflow: hidden;
+}
+.stat-card i { font-size: 32px; color: #22c55e; margin-bottom: 16px; }
+.stat-card h4 { font-size: 15px; color: #166534; margin-bottom: 8px; }
+.stat-value { font-size: 28px; font-weight: 700; color: #166534; }
+.stat-card.expense-card { border-left: 6px solid #ef4444; }
+.stat-card.profit-card { border-left: 6px solid #22c55e; }
+
+/* ==================== BRANCH SELECTOR ==================== */
+.branch-selector {
+    background: #f0fdf4; border-radius: 20px;
+    padding: 24px; margin-bottom: 30px;
+    display: flex; gap: 20px; align-items: flex-end;
+    border: 2px solid #bbf7d0; flex-wrap: wrap;
+}
+.branch-selector .form-group { flex: 1; min-width: 180px; margin-bottom: 0; }
+.branch-selector label { display: block; font-size: 14px; font-weight: 600; color: #166534; margin-bottom: 8px; }
+.branch-selector select { width: 100%; padding: 16px; border: 2px solid #bbf7d0; border-radius: 16px; font-size: 15px; background: white; }
+
+.branch-selector-container { background: #f0fdf4; border-radius: 20px; padding: 24px; margin-bottom: 30px; border: 2px solid #bbf7d0; }
+.branch-selector-title { font-size: 16px; font-weight: 600; color: #166534; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.branch-selector-title i { color: #22c55e; }
+
+.branch-selector-large { display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; }
+.branch-selector-large .form-group { flex: 1; min-width: 200px; margin-bottom: 0; }
+.branch-selector-large select { width: 100%; padding: 16px; border: 2px solid #bbf7d0; border-radius: 16px; font-size: 16px; background: white; color: #166534; font-weight: 500; }
+
+/* ==================== REPORT GRID ==================== */
+.report-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px; }
+
+.report-card {
+    background: linear-gradient(145deg, #ffffff, #f0fdf4);
+    border-radius: 28px; padding: 28px;
+    border: 2px solid #bbf7d0;
+    box-shadow: 0 8px 20px rgba(34, 197, 94, 0.05);
+}
+.report-card h3 { font-size: 18px; color: #166534; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+.report-card h3 i { color: #22c55e; font-size: 22px; }
+.report-number { font-size: 36px; font-weight: 700; color: #166534; margin-bottom: 8px; }
+.report-label { font-size: 14px; color: #166534; }
+
+/* ==================== TABLE ==================== */
+.table-wrapper {
+    background: #f0fdf4; border-radius: 24px;
+    padding: 4px; border: 2px solid #bbf7d0;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+table { width: 100%; border-collapse: collapse; min-width: 500px; }
+th { text-align: left; padding: 20px 16px; background: #dcfce7; color: #166534; font-weight: 600; white-space: nowrap; }
+td { padding: 16px; border-bottom: 1px solid #bbf7d0; color: #166534; }
+
+.report-table, .history-table, .inventory-table {
+    width: 100%; border-collapse: collapse; background: white; border-radius: 16px; overflow: hidden;
+}
+.report-table th, .history-table th, .inventory-table th {
+    background: #166534; color: white; padding: 14px 12px; text-align: left; font-weight: 600; font-size: 14px; white-space: nowrap;
+}
+.report-table td, .history-table td, .inventory-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; color: #334155; }
+.report-table tfoot tr, .history-table tfoot tr, .inventory-table tfoot tr { background: #f0fdf4; }
+.report-table tfoot td, .history-table tfoot td, .inventory-table tfoot td { font-weight: 700; color: #166534; border-top: 2px solid #bbf7d0; }
+.report-table .total-value, .history-table .total-value, .inventory-table .total-value { color: #16a34a; font-weight: 600; }
+.payment-status-cell { text-align: center; }
+.inventory-table td:last-child { white-space: nowrap; text-align: center; }
+.inventory-table .btn { margin: 2px; padding: 8px 12px; font-size: 12px; }
+
+/* ==================== BUTTONS ==================== */
+.btn { padding: 10px 20px; border: none; border-radius: 12px; font-weight: 500; cursor: pointer; margin: 0 4px; font-size: 13px; }
+.btn-primary { background: #22c55e; color: white; }
+.btn-primary:hover { background: #16a34a; }
+.btn-edit { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+.btn-delete { background: #fee2e2; color: #dc2626; }
+.btn-success { background: #22c55e; color: white; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+.btn-success:hover { background: #16a34a; }
+.btn-warning { background: #f59e0b; color: white; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+.btn-warning:hover { background: #d97706; }
+.btn-reminder { background: #3b82f6; color: white; }
+.btn-reminder:hover { background: #2563eb; }
+.btn-danger { background-color: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.btn-danger:hover { background-color: #c82333; }
+.btn-return { background: #f59e0b; color: white; border: none; padding: 10px 16px; border-radius: 12px; cursor: pointer; font-size: 13px; font-weight: 500; }
+
+.action-btn {
+    background: #22c55e; color: white; border: none;
+    padding: 14px 28px; border-radius: 16px;
+    font-weight: 600; cursor: pointer; margin-bottom: 24px;
+    font-size: 15px; display: inline-flex; align-items: center; gap: 8px;
+}
+.action-btn:hover { background: #16a34a; }
+
+.btn-group { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+
+.refresh-btn {
+    background: #22c55e; color: white; border: none;
+    padding: 12px 24px; border-radius: 40px; font-weight: 600;
+    cursor: pointer; display: inline-flex; align-items: center;
+    gap: 8px; font-size: 14px; transition: all 0.2s;
+    margin-bottom: 20px; white-space: nowrap;
+}
+.refresh-btn:hover { background: #16a34a; }
+
+.view-btn { background: #22c55e; color: white; border: none; padding: 16px 32px; border-radius: 16px; font-weight: 600; cursor: pointer; font-size: 15px; white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
+.view-btn:hover { background: #16a34a; }
+
+.btn-filter { background: #22c55e; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 10px; }
+.btn-filter:hover { background: #16a34a; }
+.btn-filter i { margin-right: 8px; }
+
+.btn-bulk-payment { background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: 600; cursor: pointer; }
+.btn-bulk-payment:hover { background: #2563eb; }
+
+.btn-view { background: #22c55e; color: white; border: none; padding: 14px 28px; border-radius: 16px; font-weight: 600; cursor: pointer; font-size: 15px; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.btn-view:hover { background: #16a34a; }
+
+.btn-delete-invoice { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+.btn-delete-invoice:hover { background: #dc2626; }
+
+/* ==================== MODAL ==================== */
+.modal {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000; visibility: hidden; opacity: 0; transition: all 0.2s; padding: 16px;
+}
+.modal.active { visibility: visible; opacity: 1; }
+
+.modal-content {
+    background: white; border-radius: 32px; padding: 40px;
+    width: 90%; max-width: 500px; max-height: 90vh;
+    overflow-y: auto; border: 2px solid #bbf7d0;
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.modal-header h3 { font-size: 22px; color: #166534; }
+.modal-header button { background: none; border: none; font-size: 28px; cursor: pointer; color: #86efac; }
+
+/* ==================== FORM ==================== */
+.form-group { margin-bottom: 20px; }
+.form-group label { display: block; font-size: 14px; font-weight: 500; color: #166534; margin-bottom: 6px; }
+.form-group input, .form-group select, .form-group textarea { width: 100%; padding: 16px; border: 2px solid #bbf7d0; border-radius: 16px; font-size: 15px; }
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: #22c55e; outline: none; }
+.form-group input[readonly] { background: #f0fdf4; cursor: not-allowed; }
+.form-control { width: 100%; padding: 14px 16px; border: 2px solid #bbf7d0; border-radius: 16px; font-size: 15px; transition: all 0.2s; background: white; }
+.form-control:focus { border-color: #22c55e; outline: none; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1); }
+.form-control[readonly] { background: #f0fdf4; cursor: not-allowed; }
+.save-btn { width: 100%; padding: 18px; background: #22c55e; color: white; border: none; border-radius: 16px; font-weight: 600; font-size: 16px; cursor: pointer; margin-top: 8px; }
+.save-btn:hover { background: #16a34a; }
+
+/* ==================== BADGE ==================== */
+.badge { padding: 6px 14px; border-radius: 40px; font-size: 12px; font-weight: 600; }
+.badge-active { background: #dcfce7; color: #16a34a; }
+.badge-warning { background: #fed7aa; color: #c2410c; }
+.badge-frozen { background: #fee2e2; color: #dc2626; }
+.badge-blocked { background: #f1f5f9; color: #475569; }
+.badge-success { background: #dcfce7; color: #16a34a; }
+.badge-paid { background: #22c55e; color: white; }
+.badge-unpaid { background: #ef4444; color: white; }
+.badge-partial { background: #f59e0b; color: white; }
+.badge-admin { background: #22c55e; color: white; }
+.badge-mainclient { background: #16a34a; color: white; }
+
+.return-badge, .return-badge-paid, .return-badge-pending, .return-badge-approved, .return-badge-rejected { padding: 4px 12px; border-radius: 40px; font-size: 12px; font-weight: 600; display: inline-block; }
+.return-badge { background: #f59e0b; color: white; }
+.return-badge-paid { background: #22c55e; color: white; }
+.return-badge-pending { background: #ef4444; color: white; }
+.return-badge-approved { background: #22c55e; color: white; }
+.return-badge-rejected { background: #64748b; color: white; }
+
+.discount-badge { background: #ef4444; color: white; padding: 2px 8px; border-radius: 40px; font-size: 11px; font-weight: 600; display: inline-block; margin-left: 5px; }
+.old-price { text-decoration: line-through; color: #94a3b8; font-size: 12px; margin-right: 5px; }
+.new-price { color: #ef4444; font-weight: 600; }
+.discount-percent { background: #f59e0b; color: white; padding: 2px 6px; border-radius: 40px; font-size: 10px; font-weight: 600; margin-left: 5px; }
+
+/* ==================== ALERT ==================== */
+.alert-box { background: #fee2e2; border: 2px solid #ef4444; border-radius: 16px; padding: 16px 24px; margin-bottom: 24px; display: flex; align-items: center; gap: 16px; color: #b91c1c; flex-wrap: wrap; }
+.alert-box i { font-size: 24px; }
+
+/* ==================== HEADER ACTIONS ==================== */
+.header-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+
+/* ==================== EMPTY STATE ==================== */
+.empty-state { text-align: center; padding: 60px 20px; background: #f0fdf4; border-radius: 24px; color: #166534; }
+.empty-state i { font-size: 48px; color: #86efac; margin-bottom: 16px; }
+.empty-state h3 { color: #166534; margin-bottom: 8px; }
+.empty-state p { margin-bottom: 24px; }
+
+.empty-branch-inventory { text-align: center; padding: 60px 20px; background: #f0fdf4; border-radius: 24px; color: #166534; margin-top: 30px; }
+
+/* ==================== EXPENSE ==================== */
+.expense-section { background: #f0fdf4; border-radius: 24px; padding: 24px; margin-bottom: 30px; border: 2px solid #bbf7d0; }
+.expense-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+.expense-header h3 { font-size: 20px; color: #166534; }
+.expense-item { background: white; border-radius: 16px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #bbf7d0; flex-wrap: wrap; gap: 10px; }
+.expense-details h4 { margin-bottom: 4px; color: #166534; }
+.expense-details p { color: #166534; font-size: 14px; }
+.expense-amount { font-size: 18px; font-weight: 700; color: #dc2626; }
+.expense-summary { background: white; border-radius: 16px; padding: 20px; margin-top: 20px; border: 2px solid #bbf7d0; }
+.expense-category { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #bbf7d0; }
+.expense-category:last-child { border-bottom: none; }
+.category-name { color: #166534; }
+.category-amount { font-weight: 600; color: #dc2626; }
+
+/* ==================== PRODUCT REPORT ==================== */
+.product-report-card { background: white; border-radius: 20px; padding: 20px; margin-bottom: 16px; border: 2px solid #bbf7d0; }
+.product-report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; cursor: pointer; }
+.product-report-header h4 { font-size: 18px; color: #166534; }
+.product-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 12px; }
+.stat-item { background: #f0fdf4; padding: 12px; border-radius: 12px; text-align: center; }
+.stat-label { font-size: 12px; color: #166534; margin-bottom: 4px; }
+
+/* ==================== TIME FILTER ==================== */
+.time-filter { background: #f0fdf4; border-radius: 20px; padding: 20px; margin-bottom: 24px; display: flex; gap: 16px; align-items: center; border: 2px solid #bbf7d0; flex-wrap: wrap; }
+.time-filter select { padding: 12px 20px; border: 2px solid #bbf7d0; border-radius: 12px; font-size: 15px; background: white; min-width: 150px; }
+.time-filter button { background: #22c55e; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: 600; cursor: pointer; }
+.time-filter button:hover { background: #16a34a; }
+
+/* ==================== PAYMENT SUMMARY ==================== */
+.payment-summary { background: #f0fdf4; border-radius: 20px; padding: 24px; margin-bottom: 30px; border: 2px solid #bbf7d0; }
+.payment-summary h3 { margin-bottom: 20px; color: #166534; display: flex; align-items: center; gap: 10px; }
+.payment-summary h3 i { color: #22c55e; }
+.summary-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.summary-item { background: white; border-radius: 16px; padding: 16px; text-align: center; border: 2px solid #bbf7d0; }
+.summary-item .label { font-size: 14px; color: #166534; margin-bottom: 8px; }
+.summary-item .value { font-size: 22px; font-weight: 700; color: #166534; }
+
+/* ==================== REPORT BILLING ==================== */
+.report-billing-section { background: white; border-radius: 24px; padding: 24px; margin-bottom: 30px; border: 2px solid #bbf7d0; }
+.filter-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+.filter-group { background: #f0fdf4; border-radius: 16px; padding: 16px; }
+.filter-group label { display: block; font-size: 14px; font-weight: 600; color: #166534; margin-bottom: 8px; }
+.filter-group select, .filter-group input { width: 100%; padding: 12px; border: 2px solid #bbf7d0; border-radius: 12px; font-size: 14px; background: white; }
+.date-range { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.date-range input { flex: 1; min-width: 120px; }
+
+/* ==================== SUMMARY CARDS ==================== */
+.summary-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 30px 0; }
+.summary-card { background: linear-gradient(145deg, #ffffff, #f0fdf4); border-radius: 20px; padding: 24px; border: 2px solid #bbf7d0; position: relative; overflow: hidden; }
+.summary-card.paid { border-left: 6px solid #22c55e; }
+.summary-card.unpaid { border-left: 6px solid #ef4444; }
+.summary-card.today { border-left: 6px solid #3b82f6; }
+.summary-card h4 { font-size: 14px; color: #166534; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.summary-card .amount { font-size: 28px; font-weight: 700; color: #166534; margin-bottom: 4px; }
+.summary-card .subtitle { font-size: 12px; color: #64748b; }
+.summary-card .badge-total { position: absolute; top: 10px; right: 10px; background: rgba(34, 197, 94, 0.1); padding: 4px 12px; border-radius: 20px; font-size: 12px; color: #166534; }
+
+.summary-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
+.summary-card-large { background: white; border-radius: 20px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 2px solid #bbf7d0; }
+.summary-card-large h4 { color: #166534; margin-bottom: 15px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.summary-card-large .amount { font-size: 26px; font-weight: 700; color: #22c55e; margin-bottom: 5px; }
+.summary-card-large .subtitle { color: #64748b; font-size: 14px; }
+.summary-card-large.paid { background: linear-gradient(145deg, #22c55e, #16a34a); }
+.summary-card-large.paid h4, .summary-card-large.paid .amount, .summary-card-large.paid .subtitle { color: white; }
+.summary-card-large.unpaid { background: linear-gradient(145deg, #ef4444, #b91c1c); }
+.summary-card-large.unpaid h4, .summary-card-large.unpaid .amount, .summary-card-large.unpaid .subtitle { color: white; }
+.summary-card-large.warning { background: linear-gradient(145deg, #f59e0b, #d97706); }
+.summary-card-large.warning h4, .summary-card-large.warning .amount, .summary-card-large.warning .subtitle { color: white; }
+.summary-stats-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #e2e8f0; }
+.summary-stats-row:last-child { border-bottom: none; }
+.summary-stats-row .label { color: #64748b; }
+.summary-stats-row .value { font-weight: 600; color: #166534; }
+.summary-stats-row .value.profit { color: #22c55e; }
+.summary-stats-row .value.loss { color: #ef4444; }
+
+/* ==================== BILLING TABLE ==================== */
+.billing-table { margin-top: 30px; }
+.billing-table h3 { color: #166534; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+
+/* ==================== INVENTORY SUMMARY ==================== */
+.inventory-summary { background: #f0fdf4; border-radius: 20px; padding: 24px; margin-top: 30px; border: 2px solid #bbf7d0; }
+.inventory-summary h3 { color: #166534; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+.inventory-item { display: flex; justify-content: space-between; padding: 12px; background: white; border-radius: 12px; margin-bottom: 8px; border: 1px solid #bbf7d0; flex-wrap: wrap; gap: 8px; }
+.inventory-item .name { font-weight: 500; color: #166534; }
+.inventory-item .stock { color: #22c55e; font-weight: 600; }
+.inventory-item .value { color: #166534; font-weight: 600; }
+.total-row { background: #dcfce7; font-weight: 700; border: 2px solid #22c55e; }
+.total-row td { color: #166534; }
+
+/* ==================== NO DATA ==================== */
+.no-data { text-align: center; padding: 40px; background: #f0fdf4; border-radius: 16px; color: #166534; }
+.no-data i { font-size: 48px; color: #86efac; margin-bottom: 16px; }
+
+/* ==================== SUMMARY BOX ==================== */
+.summary-box { background: linear-gradient(145deg, #ffffff, #f0fdf4); border-radius: 20px; padding: 24px; margin: 20px 0; border: 2px solid #bbf7d0; }
+.summary-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #bbf7d0; flex-wrap: wrap; gap: 8px; }
+.summary-row:last-child { border-bottom: none; font-weight: 700; color: #166534; }
+.summary-label { color: #166534; }
+.summary-value { color: #22c55e; font-weight: 600; }
+
+/* ==================== INVOICE ==================== */
+.invoice-modal { max-width: 800px; }
+.invoice-header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #22c55e; padding-bottom: 20px; }
+.invoice-header h2 { color: #166534; font-size: 28px; margin-bottom: 5px; }
+.invoice-header h3 { color: #22c55e; font-size: 20px; }
+.invoice-info { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 30px; padding: 20px; background: #f0fdf4; border-radius: 16px; }
+.invoice-info-item { text-align: center; flex: 1; min-width: 100px; }
+.invoice-info-item .label { font-size: 14px; color: #166534; margin-bottom: 5px; }
+.invoice-info-item .value { font-size: 18px; font-weight: 700; color: #22c55e; }
+.invoice-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+.invoice-table th { background: #22c55e; color: white; padding: 12px; text-align: left; }
+.invoice-table td { padding: 12px; border-bottom: 1px solid #bbf7d0; }
+.invoice-table tfoot tr { background: #f0fdf4; font-weight: 700; }
+.invoice-total { text-align: right; font-size: 20px; color: #166534; margin-top: 20px; padding-top: 20px; border-top: 2px solid #22c55e; }
+.invoice-footer { margin-top: 40px; text-align: center; color: #64748b; font-size: 14px; }
+.close-btn { background: #ef4444; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: 600; cursor: pointer; margin-top: 20px; }
+.close-btn:hover { background: #dc2626; }
+.all-time-summary { background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; }
+.all-time-summary h3 { color: #1e293b; font-size: 16px; }
+.invoice-table tfoot tr.grand-total td { font-weight: bold; padding-top: 10px; }
+
+/* ==================== REPORT TABS ==================== */
+.report-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; flex-wrap: wrap; }
+.report-tab { padding: 10px 20px; background: #f1f5f9; border: none; border-radius: 40px; font-weight: 600; cursor: pointer; color: #64748b; }
+.report-tab.active { background: #22c55e; color: white; }
+.report-tab:hover { background: #bbf7d0; }
+
+/* ==================== BRANCH INVENTORY ADMIN ==================== */
+.branch-inventory-header { background: #f0fdf4; border-radius: 20px; padding: 24px; margin-bottom: 30px; border: 2px solid #bbf7d0; }
+.branch-inventory-header h3 { color: #166534; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.branch-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
+.branch-stat-card { background: white; border-radius: 16px; padding: 20px; border: 2px solid #bbf7d0; text-align: center; }
+.branch-stat-card .label { font-size: 14px; color: #166534; margin-bottom: 8px; }
+.branch-stat-card .value { font-size: 26px; font-weight: 700; color: #22c55e; }
+.branch-stat-card .value.total { color: #166534; }
+.inventory-actions { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+.branch-inventory-table { margin-top: 20px; }
+
+/* ==================== DAILY PAYMENT ==================== */
+.daily-payment-card { background: white; border-radius: 16px; padding: 20px; margin-bottom: 20px; border: 2px solid #bbf7d0; }
+.daily-payment-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; flex-wrap: wrap; gap: 8px; }
+.daily-payment-date { font-size: 18px; font-weight: 700; color: #166534; }
+.daily-payment-total { font-size: 16px; color: #64748b; }
+.daily-payment-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; margin-top: 15px; }
+.daily-stat-item { text-align: center; padding: 10px; background: #f8fafc; border-radius: 12px; }
+.daily-stat-label { font-size: 12px; color: #64748b; margin-bottom: 5px; }
+.daily-stat-value { font-size: 18px; font-weight: 700; color: #166534; }
+.daily-stat-value.paid { color: #22c55e; }
+.daily-stat-value.unpaid { color: #ef4444; }
+
+/* ==================== PAYMENT ACTIONS ==================== */
+.payment-actions { display: flex; justify-content: flex-end; margin: 20px 0; }
+.grand-total-row { background: #22c55e; color: white; font-weight: 700; }
+.grand-total-row td { color: white; }
+
+/* ==================== BULK PAYMENT ==================== */
+.bulk-payment-info { background: #e0f2fe; border: 2px solid #38bdf8; border-radius: 16px; padding: 20px; margin: 20px 0; }
+.bulk-payment-info h4 { color: #0369a1; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.bulk-payment-info ul { list-style-type: none; padding-left: 0; }
+.bulk-payment-info li { padding: 8px 0; border-bottom: 1px solid #bae6fd; }
+.bulk-payment-info li:last-child { border-bottom: none; }
+
+/* ==================== DATE FILTER ==================== */
+.date-filter-row { display: flex; gap: 15px; align-items: center; margin-bottom: 20px; background: #f0fdf4; padding: 20px; border-radius: 16px; border: 2px solid #bbf7d0; flex-wrap: wrap; }
+.date-filter-row .form-group { flex: 1; min-width: 150px; margin-bottom: 0; }
+.date-filter-row button { background: #22c55e; color: white; border: none; padding: 14px 24px; border-radius: 12px; font-weight: 600; cursor: pointer; }
+.date-filter-row button:hover { background: #16a34a; }
+
+/* ==================== USER MANAGEMENT ==================== */
+.users-container { padding: 20px; }
+.users-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; }
+.add-user-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+.user-category { margin-bottom: 40px; background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow-x: auto; }
+.user-category h3 { margin-bottom: 20px; color: #333; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+.users-table { width: 100%; border-collapse: collapse; min-width: 400px; }
+.users-table th, .users-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; }
+.users-table th { background-color: #f8f9fa; font-weight: 600; color: #495057; }
+.users-table tr:hover { background-color: #f8f9fa; }
+.action-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.no-users { text-align: center; padding: 40px; color: #6c757d; font-size: 16px; }
+
+/* ==================== DISTRIBUTE PAGE ==================== */
+#itemDetails { background: white; padding: 20px; border-radius: 16px; margin-bottom: 20px; border: 2px solid #bbf7d0; animation: slideDown 0.3s ease; }
+#itemDetails h4 { color: #166534; margin-bottom: 15px; font-size: 18px; }
+#itemDetails div { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+#itemDetails label { color: #166534; font-size: 14px; font-weight: 500; display: block; margin-bottom: 5px; }
+#itemDetails p { font-size: 18px; font-weight: 600; margin: 0; }
+#availableQty { color: #22c55e; }
+#unitPrice { color: #166534; }
+#qtyHelp { color: #166534; font-size: 13px; margin-top: 5px; display: block; }
+#distQty { border: 2px solid #bbf7d0; transition: border-color 0.2s; }
+#distQty:focus { border-color: #22c55e; outline: none; }
+#distQty.error { border-color: #ef4444; }
+#distributeBtn { transition: all 0.2s; }
+#distributeBtn:disabled { background: #86efac; cursor: not-allowed; opacity: 0.6; }
+
+/* ==================== TOTAL AMOUNT DROPDOWN ==================== */
+#totalAmountBranchSelect, #totalAmountBranchSelectMain { padding: 14px 12px !important; font-size: 16px !important; height: 50px !important; line-height: 1.5 !important; }
+
+/* ==================== BRANCH LIST ==================== */
+.branch-list { margin-top: 20px; }
+.branch-item { background: white; border: 2px solid #bbf7d0; border-radius: 16px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.branch-item:hover { border-color: #22c55e; }
+.branch-item .branch-name { font-weight: 600; color: #166534; }
+.branch-item .branch-status { font-size: 12px; padding: 4px 12px; border-radius: 20px; background: #dcfce7; color: #16a34a; }
+
+/* ==================== MISC ==================== */
+.refresh-indicator { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: #f0fdf4; border-radius: 40px; font-size: 13px; color: #166534; margin-bottom: 16px; }
+.refresh-indicator i { color: #22c55e; }
+.pulse { animation: pulse 2s infinite; }
+.price-fixed-badge { background: #f1f5f9; color: #64748b; padding: 4px 8px; border-radius: 40px; font-size: 11px; display: inline-block; margin-left: 8px; }
+.discount-info-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 15px; margin: 15px 0; }
+.savings-amount { color: #ef4444; font-weight: 700; font-size: 16px; }
+
+@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+@keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ==================== PRINT ==================== */
+@media print {
+    body * { visibility: hidden; }
+    .invoice-print, .invoice-print * { visibility: visible; }
+    .invoice-print { position: absolute; left: 0; top: 0; width: 100%; background: white; padding: 30px; }
+    .no-print { display: none !important; }
+}
+
+/* ==============================================
+   TABLET (769px - 1024px)
+   ============================================== */
+@media (max-width: 1024px) {
+    .sidebar { width: 220px; padding: 16px 10px; }
+    .nav-item { padding: 12px 14px; font-size: 13px; gap: 10px; }
+    .content-area { padding: 20px; }
+    .report-grid { grid-template-columns: repeat(2, 1fr); }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .summary-cards { grid-template-columns: repeat(2, 1fr); }
+    .filter-row { grid-template-columns: 1fr 1fr; }
+    .branch-stats { grid-template-columns: repeat(2, 1fr); }
+    .product-stats { grid-template-columns: repeat(2, 1fr); }
+    .page-title { font-size: 26px; }
+}
+
+/* ==============================================
+   MOBILE (max 768px)
+   ============================================== */
+@media (max-width: 768px) {
+
+    body { padding: 0; align-items: flex-start; }
+    .login-wrapper { max-width: 100%; padding: 12px; }
+    .login-card { padding: 20px; border-radius: 16px; }
+    .company-name { font-size: 14px; }
+    .app-container { border-radius: 0; max-width: 100%; }
+    .app-header { padding: 10px 12px; }
+    .brand h2 { font-size: 12px; }
+    .brand-logo { width: 24px; height: 24px; }
+    .user-menu { padding: 6px 10px; font-size: 11px; gap: 8px; }
+
+
+    .dashboard { 
+        min-height: calc(100vh - 60px); 
+        height: auto;
+        flex-direction: row;
+        align-items: stretch;
+    }
+
+
+    /* Sidebar - عمودی در سمت چپ */
+
+
+    .sidebar {
+        width: 52px;
+        min-width: 52px;
+        padding: 8px 4px;
+        border-right: 2px solid #bbf7d0;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        max-height: 100vh;
+        position: sticky;
+        top: 0;
+    }
+
+    .nav-item {
+        padding: 10px;
+        font-size: 0;
+        white-space: nowrap;
+        margin-bottom: 2px;
+        flex-shrink: 0;
+        border-radius: 10px;
+        justify-content: center;
+        gap: 0;
+    }
+
+    .nav-item i {
+        width: 20px;
+        font-size: 16px;
+        margin: 0;
+    }
+
+    .nav-item.logout { margin-top: 8px; }
+    .content-area { 
+        padding: 12px; 
+        flex: 1; 
+        min-width: 0; 
+        overflow-y: auto;
+        max-height: calc(100vh - 60px);
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .page-title { font-size: 16px; margin-bottom: 12px; }
+
+    /* Stats - کوچک‌تر */
+    .stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+    .stat-card { padding: 10px; border-radius: 14px; }
+    .stat-value { font-size: 16px; }
+    .stat-card i { font-size: 20px; margin-bottom: 6px; }
+    .stat-card h4 { font-size: 11px; }
+
+    /* Grids */
+    .report-grid { grid-template-columns: 1fr; gap: 10px; }
+    .summary-cards { grid-template-columns: 1fr; gap: 10px; }
+    .summary-cards-grid { grid-template-columns: 1fr; gap: 10px; }
+    .branch-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .product-stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .filter-row { grid-template-columns: 1fr; gap: 10px; }
+    .summary-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    /* Report & summary cards */
+    .report-card { padding: 14px; border-radius: 16px; }
+    .report-number { font-size: 22px; }
+    .report-card h3 { font-size: 14px; }
+    .summary-card { padding: 12px; }
+    .summary-card .amount { font-size: 18px; }
+    .summary-card h4 { font-size: 12px; }
+    .summary-card-large { padding: 14px; }
+    .summary-card-large .amount { font-size: 18px; }
+    .summary-card-large h4 { font-size: 13px; margin-bottom: 10px; }
+
+    /* Branch selector */
+    .branch-selector { flex-direction: column; padding: 12px; gap: 10px; }
+    .branch-selector .form-group { min-width: 100%; }
+    .branch-selector-large { flex-direction: column; }
+    .branch-selector-large .form-group { min-width: 100%; }
+    .branch-selector-container { padding: 12px; }
+
+    /* Table - کوچک‌تر */
+    .table-wrapper { border-radius: 12px; }
+    table { min-width: 420px; }
+    th { padding: 8px 6px; font-size: 11px; }
+    td { padding: 7px 6px; font-size: 11px; }
+    .report-table th, .history-table th, .inventory-table th { padding: 8px 6px; font-size: 11px; }
+    .report-table td, .history-table td, .inventory-table td { padding: 7px 6px; font-size: 11px; }
+
+    /* Modal */
+    .modal { padding: 8px; }
+    .modal-content { width: 100%; padding: 16px; border-radius: 16px; max-height: 88vh; }
+    .modal-header h3 { font-size: 16px; }
+    .form-group input, .form-group select, .form-group textarea { padding: 12px; font-size: 14px; }
+    .save-btn { padding: 14px; font-size: 14px; }
+
+    /* Buttons */
+    .btn-group { flex-wrap: wrap; gap: 8px; }
+    .action-btn { width: 100%; justify-content: center; padding: 12px 16px; font-size: 13px; }
+    .refresh-btn { padding: 9px 14px; font-size: 12px; margin-bottom: 12px; }
+    .btn { padding: 7px 12px; font-size: 12px; }
+    .btn-success, .btn-warning { padding: 6px 10px; font-size: 11px; }
+
+    /* Header */
+    .header-actions { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .header-actions .page-title { flex: 1; }
+    .header-actions .refresh-btn { margin-bottom: 0; }
+
+    /* Search */
+    .search-container { flex-direction: column; align-items: stretch; gap: 8px; }
+    .search-box { min-width: 100%; }
+    .search-box input { padding: 12px 12px 12px 40px; font-size: 13px; }
+    .search-results { text-align: right; font-size: 12px; }
+
+    /* Time filter */
+    .time-filter { flex-direction: column; padding: 12px; gap: 10px; }
+    .time-filter select { min-width: 100%; }
+
+    /* Expense */
+    .expense-section { padding: 14px; }
+    .expense-item { flex-direction: column; align-items: flex-start; padding: 12px; }
+    .expense-amount { align-self: flex-end; font-size: 15px; }
+    .expense-details h4 { font-size: 13px; }
+    .expense-details p { font-size: 12px; }
+
+    /* Report tabs */
+    .report-tabs { gap: 4px; }
+    .report-tab { padding: 7px 12px; font-size: 12px; }
+
+    /* Invoice */
+    .invoice-modal { max-width: 100%; }
+    .invoice-info { flex-direction: column; gap: 10px; }
+    .invoice-info-item { text-align: left; }
+
+    /* Payment */
+    .payment-summary { padding: 14px; }
+    .payment-actions { justify-content: stretch; }
+    .btn-bulk-payment { width: 100%; }
+
+    /* User */
+    .add-user-buttons { flex-direction: column; }
+    .add-user-buttons .btn-primary { width: 100%; text-align: center; }
+
+    /* Date filter */
+    .date-filter-row { flex-direction: column; padding: 12px; }
+    .date-filter-row button { width: 100%; }
+    .date-range { flex-direction: column; }
+    .date-range input { width: 100%; }
+
+    /* Distribute */
+    #itemDetails { padding: 14px; }
+    #itemDetails div { grid-template-columns: 1fr; }
+
+    /* Branch inventory */
+    .branch-stat-card { padding: 12px; }
+    .branch-stat-card .value { font-size: 20px; }
+    .branch-stat-card .label { font-size: 12px; }
+
+    /* Daily payment */
+    .daily-payment-card { padding: 14px; }
+    .daily-stat-value { font-size: 15px; }
+
+}
+
+/* ==============================================
+   SMALL PHONES (max 400px)
+   ============================================== */
+@media (max-width: 400px) {
+    .stats-grid { grid-template-columns: 1fr; }
+    .summary-stats { grid-template-columns: 1fr; }
+    .branch-stats { grid-template-columns: 1fr; }
+    .product-stats { grid-template-columns: 1fr; }
+    .login-card { padding: 18px; border-radius: 16px; }
+    .tab-btn { padding: 10px 6px; font-size: 12px; }
+    .nav-item { padding: 8px 10px; font-size: 11px; }
+    .page-title { font-size: 18px; }
+    .stat-value { font-size: 18px; }
+    .summary-item .value { font-size: 18px; }
+}
+
+.app-header {
+    background: white;
+} 
