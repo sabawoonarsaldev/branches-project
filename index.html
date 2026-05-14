@@ -2415,6 +2415,11 @@ window.saveNewItem = async function() {
         alert('Please fill all fields correctly');
         return;
     }
+    const saveBtn = document.querySelector('#modalContent .save-btn');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    }
     
     try {
         const response = await fetch('/api/inventory', {
@@ -2473,6 +2478,10 @@ window.saveNewItem = async function() {
             alert('Failed to add item: ' + error.error);
         }
     } catch (error) {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = 'Save Item';
+        }
         console.error('Error adding item:', error);
         alert('Failed to add item. Make sure server is running.');
     }
@@ -2882,6 +2891,10 @@ window.showAddExpenseModal = function() {
 
 
 window.saveNewExpense = async function() {
+    const btn = document.querySelector('#modalContent .save-btn') 
+         || document.querySelector('#distributeBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Please wait...'; }
+
     let newExpense = {
         date: document.getElementById('expDate').value,
         category: document.getElementById('expCategory').value,
@@ -2928,6 +2941,8 @@ window.saveNewExpense = async function() {
         
         alert('Expense added successfully!');
     } catch (error) {
+        if (btn) { btn.disabled = false; btn.textContent = 'real text'; }
+
         console.error('Error adding expense:', error);
         alert('Failed to add expense. Make sure server is running.');
     }
@@ -4688,6 +4703,9 @@ async function renderMainClientExpenses() {
 
 
         window.saveMainClientExpense = async function() {
+            const btn = document.querySelector('#modalContent .save-btn') 
+                || document.querySelector('#distributeBtn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Please wait...'; }
     let mainClient = currentUser.username;
     
     let newExpense = {
@@ -4735,7 +4753,7 @@ async function renderMainClientExpenses() {
         renderMainClientExpenses();
         
         alert('Expense added successfully!');
-    } catch (error) {
+    } catch (error) {if (btn) { btn.disabled = false; btn.textContent = 'real text'; }
         console.error('Error adding expense:', error);
         alert('Failed to add expense: ' + error.message);
     }
@@ -5078,6 +5096,9 @@ window.validateQuantity = function() {
 
 
 window.distributeToBranch = async function() {
+    const btn = document.querySelector('#modalContent .save-btn') 
+         || document.querySelector('#distributeBtn');
+if (btn) { btn.disabled = true; btn.textContent = 'Please wait...'; }
 
     // در ابتدای تابع distributeToBranch، این خط را اضافه کنید
 let todayDate = getTodayDate();
@@ -5249,6 +5270,7 @@ await addShipment({
         alert(`✅ Successfully distributed ${qty} ${itemName}(s) to ${branch} branch!\nRemaining stock: ${newRemaining}`);
         
     } catch (error) {
+        if (btn) { btn.disabled = false; btn.textContent = 'real text'; }
         console.error('Error distributing to branch:', error);
         alert('Failed to distribute. Error: ' + error.message);
     }
@@ -10289,6 +10311,9 @@ function calculateBranchMonthlyExpenses(expenses) {
 };
 
 window.saveBranchExpense = async function() {
+    const btn = document.querySelector('#modalContent .save-btn') 
+         || document.querySelector('#distributeBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Please wait...'; }
     let branch = currentUser.username;
     
     let newExpense = {
@@ -10343,6 +10368,7 @@ window.saveBranchExpense = async function() {
         
         alert('Expense added successfully!');
     } catch (error) {
+        if (btn) { btn.disabled = false; btn.textContent = 'real text'; }
         console.error('Error adding expense:', error);
         alert('Failed to add expense. Error: ' + error.message);
     }
@@ -12079,6 +12105,10 @@ window.showAddMainClientModal = function() {
 
 
 window.saveNewUser = async function(role) {
+    const btn = document.querySelector('#modalContent .save-btn') 
+         || document.querySelector('#distributeBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Please wait...'; }
+
     let username = document.getElementById('newUsername').value;
     let password = document.getElementById('newPassword').value;
     
@@ -12086,7 +12116,7 @@ window.saveNewUser = async function(role) {
         alert('Please fill all fields');
         return;
     }
-
+  
     // Check if username already exists in current users array
     if (users.some(u => u.username === username && !u.deleted)) {
         alert('Username already exists!');
@@ -12131,6 +12161,7 @@ window.saveNewUser = async function(role) {
         
         alert(`${role === 'admin' ? 'Admin' : (role === 'branch' ? 'Branch' : 'Main Client')} "${username}" added successfully!`);
     } catch (error) {
+        if (btn) { btn.disabled = false; btn.textContent = 'real text'; }
         console.error('Error adding user:', error);
         alert(error.message || 'Failed to add user. Make sure server is running.');
     }

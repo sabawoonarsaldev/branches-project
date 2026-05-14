@@ -471,17 +471,17 @@ app.get('/api/main-client-payments/:mainClient', async (req, res) => {
     try {
 
 
+
         const [rows] = await pool.execute(
             'SELECT item_id, item_name, quantity, date, is_paid FROM main_client_payments WHERE main_client = ? AND is_paid = 1',
             [mainClient]
         );
-        res.json(rows.map(r => ({
+        const result = rows.map(r => ({
             ...r,
             is_paid: r.is_paid === 1 || r.is_paid === true
-        })));
-
+        }));
         console.log(`Found ${rows.length} paid items for ${mainClient}`);
-        res.json(rows);
+        res.json(result);
     } catch (err) {
         console.error('Error in GET /api/main-client-payments/:mainClient:', err);
         res.status(500).json({ error: err.message });
