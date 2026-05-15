@@ -11278,21 +11278,18 @@ function renderUsers() {
             let statusText = u.blocked ? 'Blocked' : (u.frozen ? 'Frozen' : (u.role === 'admin' ? 'Admin' : (u.role === 'mainclient' ? 'Main Client' : 'Active')));
             
             let isMainAdmin = (u.role === 'admin' && u.username === 'admin');
-            
+
             return `
                 <tr>
                     <td>${u.id}</td>
                     <td>${u.username} ${u.role === 'admin' ? '<span class="badge badge-admin">Admin</span>' : (u.role === 'mainclient' ? '<span class="badge badge-mainclient">Main Client</span>' : '')}</td>
                     <td><span class="badge ${statusClass}">${statusText}</span></td>
                     <td>
-                        <button class="btn btn-edit" onclick="changePassword(${u.id})">Change Password</button>
+                        ${u.role === 'admin' ? `<button class="btn btn-edit" onclick="changePassword(${u.id})">Change Password</button>` : ''}
                         ${!isMainAdmin ? `
+                            <button class="btn btn-edit" onclick="changePassword(${u.id})">Change Password</button>
                             <button class="btn btn-edit" onclick="editUser(${u.id})"><i class="fas fa-edit"></i> Edit</button>
                             <button class="btn btn-delete" onclick="deleteUser(${u.id})"><i class="fas fa-trash"></i> Delete</button>
-                        ` : ''}
-                        ${u.role !== 'admin' && !isMainAdmin ? `
-                            <button class="btn ${u.frozen ? 'btn-success' : 'btn-edit'}" onclick="toggleFreeze(${u.id})">${u.frozen ? 'Unfreeze' : 'Freeze'}</button>
-                            <button class="btn ${u.blocked ? 'btn-success' : 'btn-delete'}" onclick="toggleBlock(${u.id})">${u.blocked ? 'Unblock' : 'Block'}</button>
                         ` : ''}
                     </td>
                 </tr>
