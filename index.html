@@ -11285,12 +11285,14 @@ function renderUsers() {
                     <td>${u.username} ${u.role === 'admin' ? '<span class="badge badge-admin">Admin</span>' : (u.role === 'mainclient' ? '<span class="badge badge-mainclient">Main Client</span>' : '')}</td>
                     <td><span class="badge ${statusClass}">${statusText}</span></td>
                     <td>
-                        ${u.role === 'admin' ? `<button class="btn btn-edit" onclick="changePassword(${u.id})">Change Password</button>` : ''}
-                        ${!isMainAdmin ? `
-                            <button class="btn btn-edit" onclick="changePassword(${u.id})">Change Password</button>
-                            <button class="btn btn-edit" onclick="editUser(${u.id})"><i class="fas fa-edit"></i> Edit</button>
-                            <button class="btn btn-delete" onclick="deleteUser(${u.id})"><i class="fas fa-trash"></i> Delete</button>
-                        ` : ''}
+                   ${!isMainAdmin ? `
+                        <button class="btn btn-edit" onclick="showEditUserModal(${u.id})"><i class="fas fa-edit"></i> Edit</button>
+                        <button class="btn btn-delete" onclick="deleteUser(${u.id})"><i class="fas fa-trash"></i> Delete</button>
+                    ` : `
+                        <button class="btn btn-edit" onclick="showEditUserModal(${u.id})"><i class="fas fa-edit"></i> Edit</button>
+                    `}
+
+
                     </td>
                 </tr>
             `;
@@ -11316,8 +11318,7 @@ function renderUsers() {
     document.getElementById('content').innerHTML = html;
 }
 
-// Add Edit User Modal Function
-window.editUser = function(id) {
+window.showEditUserModal = function(id) {
     let user = users.find(u => u.id === id);
     if (!user) return;
     
@@ -11328,82 +11329,81 @@ window.editUser = function(id) {
         </div>
         <div class="form-group">
             <label>Username</label>
-            <input type="text" id="editUsername" value="${user.username}">
+            <input type="text" id="editUserUsername" value="${escapeHtml(user.username)}">
         </div>
         <div class="form-group">
-            <label>Password</label>
-            <input type="text" id="editPassword" value="${user.password}">
+            <label>New Password</label>
+            <input type="text" id="editUserPassword" value="${escapeHtml(user.password)}" placeholder="Enter new password">
         </div>
-        <div class="form-group">
-            <label>Role</label>
-            <select id="editRole" ${user.role === 'admin' && user.username === 'admin' ? 'disabled' : ''}>
-                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
-                <option value="mainclient" ${user.role === 'mainclient' ? 'selected' : ''}>Main Client</option>
-                <option value="branch" ${user.role === 'branch' ? 'selected' : ''}>Branch</option>
-            </select>
-            ${user.role === 'admin' && user.username === 'admin' ? '<small style="color: #f59e0b;">Main admin role cannot be changed</small>' : ''}
-        </div>
-        <button class="save-btn" onclick="updateUser(${id})">Update User</button>
+        <button class="save-btn" onclick="saveEditUser(${id})">
+            <i class="fas fa-save"></i> Save Changes
+        </button>
     `;
     
     document.getElementById('modalContent').innerHTML = modalContent;
     document.getElementById('modal').classList.add('active');
 };
 
-// Update User Function
-
-
-
-// Update User Function
-window.updateUser = async function(id) {
+window.saveEditUser = async function(id) {
     let user = users.find(u => u.id === id);
     if (!user) return;
     
-    let newUsername = document.getElementById('editUsername').value;
-    let newPassword = document.getElementById('editPassword').value;
-    let newRole = document.getElementById('editRole').value;
+    let newUsername = document.getElementById('editUserUsername').value.trim();
+    let newPassword = document.getElementById('editUserPassword').value.trim();
     
     if (!newUsername || !newPassword) {
         alert('Please fill all fields');
         return;
     }
     
-    // Check if username already exists (excluding current user)
+    // چک کردن username تکراری
     if (newUsername !== user.username && users.some(u => u.username === newUsername && !u.deleted && u.id !== id)) {
         alert('Username already exists!');
         return;
     }
     
+    const saveBtn = document.querySelector('#modalContent .save-btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+    
     try {
-        // Update in database via API
-        await updateUser(id, {
-            username: newUsername,
-            password: newPassword,
-            role: newRole,
-            frozen: user.frozen,
-            blocked: user.blocked,
-            deleted: user.deleted
+        const response = await fetch(`/api/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: newUsername,
+                password: newPassword,
+                role: user.role,
+                frozen: user.frozen,
+                blocked: user.blocked,
+                deleted: user.deleted
+            })
         });
         
-        // Refresh users from server
-        const freshUsers = await fetchUsers();
-        users = freshUsers;
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to update user');
+        }
+        
+        // آپدیت local
+        user.username = newUsername;
+        user.password = newPassword;
         
         closeModal();
         renderUsers();
+        alert(`User "${newUsername}" updated successfully!`);
         
-        // If current user was edited, update currentUser display
-        if (currentUser && currentUser.username === user.username) {
-            currentUser.username = newUsername;
-            document.getElementById('userDisplay').textContent = newUsername;
-        }
-        
-        alert(`User ${newUsername} updated successfully!`);
     } catch (error) {
-        console.error('Error updating user:', error);
-        alert('Failed to update user.');
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; }
+        alert('Failed to update user: ' + error.message);
     }
 };
+// Add Edit User Modal Function
+
+// Update User Function
+
+
+
+// Update User Function
 
 // Delete user function
 
