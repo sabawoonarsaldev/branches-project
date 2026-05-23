@@ -1248,6 +1248,20 @@ app.get('/', (req, res) => {
 
 
 // ============= PAYMENTS TO ADMIN API =============
+
+
+app.get('/api/payments-to-admin', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT * FROM payments_to_admin ORDER BY date DESC'
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 app.get('/api/payments-to-admin/:mainClient', async (req, res) => {
     const { mainClient } = req.params;
     try {
@@ -1261,16 +1275,6 @@ app.get('/api/payments-to-admin/:mainClient', async (req, res) => {
     }
 });
 
-app.get('/api/payments-to-admin', async (req, res) => {
-    try {
-        const [rows] = await pool.execute(
-            'SELECT * FROM payments_to_admin ORDER BY date DESC'
-        );
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
 
 app.post('/api/payments-to-admin', async (req, res) => {
     const { main_client, amount, description, date } = req.body;
