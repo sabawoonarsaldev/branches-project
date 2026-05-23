@@ -1227,6 +1227,72 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+
+// ============= PAYMENTS TO ADMIN API =============
+app.get('/api/payments-to-admin/:mainClient', async (req, res) => {
+    const { mainClient } = req.params;
+    try {
+        const [rows] = await pool.execute(
+            'SELECT * FROM payments_to_admin WHERE main_client = ? ORDER BY date DESC',
+            [mainClient]
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/payments-to-admin', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT * FROM payments_to_admin ORDER BY date DESC'
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/payments-to-admin', async (req, res) => {
+    const { main_client, amount, description, date } = req.body;
+    try {
+        const [result] = await pool.execute(
+            'INSERT INTO payments_to_admin (main_client, amount, description, date, status) VALUES (?, ?, ?, ?, ?)',
+            [main_client, amount, description || null, date, 'unpaid']
+        );
+        const [rows] = await pool.execute('SELECT * FROM payments_to_admin WHERE id = ?', [result.insertId]);
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/payments-to-admin/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    try {
+        await pool.execute(
+            'UPDATE payments_to_admin SET status = ? WHERE id = ?',
+            [status, id]
+        );
+        const [rows] = await pool.execute('SELECT * FROM payments_to_admin WHERE id = ?', [id]);
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/payments-to-admin/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.execute('DELETE FROM payments_to_admin WHERE id = ?', [id]);
+        res.json({ message: 'Payment deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on port: ${PORT}`);

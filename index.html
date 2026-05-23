@@ -1735,6 +1735,7 @@ async function getMainClientPaymentSummary() {
                     <div class="nav-item" onclick="showSection('adminInvoices')"><i class="fas fa-file-invoice"></i> Invoices</div>
                     <div class="nav-item" onclick="showSection('discounts')"><i class="fas fa-percent"></i> Discounts</div>
                     <div class="nav-item" onclick="showSection('users')"><i class="fas fa-users"></i> Users</div>
+                    <div class="nav-item" onclick="showSection('adminPaymentsToAdmin')"><i class="fas fa-hand-holding-usd"></i> Payment to Admin</div>
                     <div class="nav-item" onclick="showSection('totalAmount')"><i class="fas fa-chart-pie"></i> Total Amount</div>
                     <div class="nav-item" onclick="showSection('adminHistory')"><i class="fas fa-history"></i> History</div>
                     <div class="nav-item logout" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</div>
@@ -1742,6 +1743,7 @@ async function getMainClientPaymentSummary() {
             } else if (currentUser.role === 'mainclient') {
                 html = `
                     <div class="nav-item active" onclick="showSection('mainClientInventory')"><i class="fas fa-box"></i> Shared Inventory</div>
+                    <div class="nav-item" onclick="showSection('mainClientPaymentToAdmin')"><i class="fas fa-hand-holding-usd"></i> Payment to Admin</div>
                     <div class="nav-item" onclick="showSection('mainClientFinance')"><i class="fas fa-chart-line"></i> My Finance</div>
                     <div class="nav-item" onclick="showSection('mainClientExpenses')"><i class="fas fa-money-bill-wave"></i> My Expenses</div>
                     <div class="nav-item" onclick="showSection('mainClientDistribute')"><i class="fas fa-share-alt"></i> Distribute</div>
@@ -1787,6 +1789,7 @@ async function getMainClientPaymentSummary() {
                 else if (section === 'users') renderUsers();
                 else if (section === 'totalAmount') renderTotalAmount(); 
                 else if (section === 'adminHistory') renderAdminHistory();
+                else if (section === 'adminPaymentsToAdmin') renderAdminPaymentsToAdmin();
 
             } else if (currentUser.role === 'mainclient') {
                 if (section === 'mainClientInventory') renderMainClientInventory();
@@ -1803,6 +1806,7 @@ async function getMainClientPaymentSummary() {
                 else if (section === 'mainClientReturns') renderMainClientReturns();
                 else if (section === 'totalAmountMain') renderTotalAmountMain();  
                 else if (section === 'mainClientHistory') renderMainClientHistory();
+                else if (section === 'mainClientPaymentToAdmin') renderMainClientPaymentToAdmin();
            } else {
                 if (section === 'branchInventory') renderBranchInventory();
                 else if (section === 'branchSale') renderBranchSale();
@@ -7865,6 +7869,258 @@ window.mainClientResolveAlert = async function(alertId) {
         alert('Failed to resolve alert. Make sure server is running.');
     }
 };
+
+
+// ==================================payment to admin==========
+
+// ==================== PAYMENT TO ADMIN - MAIN CLIENT ====================
+async function renderMainClientPaymentToAdmin() {
+    let mainClient = currentUser.username;
+    
+    let payments = [];
+    try {
+        const res = await fetch(`/api/payments-to-admin/${mainClient}`);
+        if (res.ok) payments = await res.json();
+    } catch (err) {
+        console.log('Error loading payments:', err);
+    }
+    
+    let totalPaid = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    let totalUnpaid = payments.filter(p => p.status === 'unpaid').reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    
+    let html = `
+        <div class="header-actions">
+            <h2 class="page-title">Payment to Admin</h2>
+            <button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button>
+        </div>
+        
+        <div class="stats-grid" style="margin-bottom: 24px;">
+            <div class="stat-card" style="background: linear-gradient(145deg, #22c55e, #16a34a); color: white;">
+                <i class="fas fa-check-circle" style="color: white;"></i>
+                <h4 style="color: rgba(255,255,255,0.8);">Total Paid</h4>
+                <div class="stat-value" style="color: white;">${formatMoney(totalPaid)}</div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(145deg, #ef4444, #b91c1c); color: white;">
+                <i class="fas fa-clock" style="color: white;"></i>
+                <h4 style="color: rgba(255,255,255,0.8);">Total Unpaid</h4>
+                <div class="stat-value" style="color: white;">${formatMoney(totalUnpaid)}</div>
+            </div>
+        </div>
+        
+        <div class="expense-section" style="margin-bottom: 30px;">
+            <h3 style="margin-bottom: 20px; color: #166534;"><i class="fas fa-plus-circle"></i> Add New Payment</h3>
+            <div class="form-group">
+                <label>Amount (AFG)</label>
+                <input type="number" id="payToAdminAmount" step="0.01" min="0" placeholder="Enter amount" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Description (Optional)</label>
+                <textarea id="payToAdminDesc" rows="2" placeholder="Enter description..." class="form-control"></textarea>
+            </div>
+            <button class="action-btn" onclick="addPaymentToAdmin()" id="addPaymentBtn">
+                <i class="fas fa-plus"></i> Add Payment
+            </button>
+        </div>
+        
+        <h3 style="margin-bottom: 20px; color: #166534;">Payment History</h3>
+        
+        ${payments.length === 0 ? `
+            <div class="empty-state">
+                <i class="fas fa-money-bill-wave"></i>
+                <h3>No Payments Yet</h3>
+                <p>Add your first payment above</p>
+            </div>
+        ` : `
+            <div class="table-wrapper">
+                <table class="inventory-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Date</th>
+                            <th>Amount</th>
+                            <th>Description</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${payments.map(p => `
+                            <tr>
+                                <td>${p.id}</td>
+                                <td>${p.date ? p.date.split('T')[0] : '-'}</td>
+                                <td class="total-value">${formatMoney(parseFloat(p.amount))}</td>
+                                <td>${p.description || '-'}</td>
+                                <td>
+                                    <span class="badge ${p.status === 'paid' ? 'badge-paid' : 'badge-unpaid'}">
+                                        ${p.status === 'paid' ? 'PAID' : 'UNPAID'}
+                                    </span>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `}
+    `;
+    
+    document.getElementById('content').innerHTML = html;
+}
+
+window.addPaymentToAdmin = async function() {
+    let amount = parseFloat(document.getElementById('payToAdminAmount').value);
+    let description = document.getElementById('payToAdminDesc').value.trim();
+    
+    if (isNaN(amount) || amount <= 0) {
+        alert('Please enter a valid amount');
+        return;
+    }
+    
+    const btn = document.getElementById('addPaymentBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...'; }
+    
+    try {
+        const res = await fetch('/api/payments-to-admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                main_client: currentUser.username,
+                amount: amount,
+                description: description || null,
+                date: getTodayDate()
+            })
+        });
+        
+        if (!res.ok) throw new Error('Failed to add payment');
+        
+        await renderMainClientPaymentToAdmin();
+        alert('Payment added successfully!');
+    } catch (err) {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plus"></i> Add Payment'; }
+        alert('Failed to add payment: ' + err.message);
+    }
+};
+
+// ==================== PAYMENT TO ADMIN - ADMIN VIEW ====================
+async function renderAdminPaymentsToAdmin() {
+    let payments = [];
+    try {
+        const res = await fetch('/api/payments-to-admin');
+        if (res.ok) payments = await res.json();
+    } catch (err) {
+        console.log('Error loading payments:', err);
+    }
+    
+    let totalPaid = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    let totalUnpaid = payments.filter(p => p.status === 'unpaid').reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    
+    let html = `
+        <div class="header-actions">
+            <h2 class="page-title">Payment to Admin</h2>
+            <button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button>
+        </div>
+        
+        <div class="stats-grid" style="margin-bottom: 24px;">
+            <div class="stat-card" style="background: linear-gradient(145deg, #22c55e, #16a34a); color: white;">
+                <i class="fas fa-check-circle" style="color: white;"></i>
+                <h4 style="color: rgba(255,255,255,0.8);">Total Paid</h4>
+                <div class="stat-value" style="color: white;">${formatMoney(totalPaid)}</div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(145deg, #ef4444, #b91c1c); color: white;">
+                <i class="fas fa-clock" style="color: white;"></i>
+                <h4 style="color: rgba(255,255,255,0.8);">Total Unpaid</h4>
+                <div class="stat-value" style="color: white;">${formatMoney(totalUnpaid)}</div>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-list"></i>
+                <h4>Total Records</h4>
+                <div class="stat-value">${payments.length}</div>
+            </div>
+        </div>
+        
+        <div class="search-container" style="margin-bottom: 20px;">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="payToAdminSearch" placeholder="Search by client name or description..." 
+                    onkeyup="filterAdminPaymentsToAdmin()" class="form-control">
+            </div>
+        </div>
+        
+        ${payments.length === 0 ? `
+            <div class="empty-state">
+                <i class="fas fa-money-bill-wave"></i>
+                <h3>No Payments Yet</h3>
+                <p>No payments have been added by main clients yet</p>
+            </div>
+        ` : `
+            <div class="table-wrapper">
+                <table class="inventory-table" id="adminPayToAdminTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Main Client</th>
+                            <th>Date</th>
+                            <th>Amount</th>
+                            <th>Description</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminPayToAdminBody">
+                        ${renderAdminPayToAdminRows(payments)}
+                    </tbody>
+                </table>
+            </div>
+        `}
+    `;
+    
+    document.getElementById('content').innerHTML = html;
+    window._allAdminPayments = payments;
+}
+
+function renderAdminPayToAdminRows(payments) {
+    return payments.map(p => `
+        <tr data-client="${p.main_client}" data-desc="${(p.description || '').toLowerCase()}">
+            <td>${p.id}</td>
+            <td><span class="badge badge-mainclient">${p.main_client}</span></td>
+            <td>${p.date ? p.date.split('T')[0] : '-'}</td>
+            <td class="total-value">${formatMoney(parseFloat(p.amount))}</td>
+            <td>${p.description || '-'}</td>
+            <td>
+                <button class="btn ${p.status === 'paid' ? 'btn-success' : 'btn-warning'}" 
+                    onclick="togglePaymentToAdminStatus(${p.id}, '${p.status}')">
+                    ${p.status === 'paid' ? '✓ PAID' : '⏳ UNPAID'}
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+window.filterAdminPaymentsToAdmin = function() {
+    let search = document.getElementById('payToAdminSearch').value.toLowerCase();
+    let payments = window._allAdminPayments || [];
+    let filtered = payments.filter(p => 
+        p.main_client.toLowerCase().includes(search) ||
+        (p.description || '').toLowerCase().includes(search)
+    );
+    let tbody = document.getElementById('adminPayToAdminBody');
+    if (tbody) tbody.innerHTML = renderAdminPayToAdminRows(filtered);
+};
+
+window.togglePaymentToAdminStatus = async function(id, currentStatus) {
+    let newStatus = currentStatus === 'paid' ? 'unpaid' : 'paid';
+    
+    try {
+        const res = await fetch(`/api/payments-to-admin/${id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus })
+        });
+        
+        if (!res.ok) throw new Error('Failed to update status');
+        
+        await renderAdminPaymentsToAdmin();
+    } catch (err) {
+        alert('Failed to update payment status: ' + err.message);
+    }
+};
         // ==================== MAIN CLIENT RETURNS SECTION ====================
         function renderMainClientReturns() {
             let branches = getBranchUsers();
@@ -12183,6 +12439,7 @@ window.saveNewUser = async function(role) {
             else if (activeSection.includes('users')) renderUsers();
             else if (activeSection.includes('branch inventory')) renderBranchInventoryAdmin();
             else if (activeSection.includes('history')) renderAdminHistory();
+            else if (activeSection.includes('payment to admin')) renderAdminPaymentsToAdmin();
             else renderInventory();
         }
     } else if (currentUser.role === 'mainclient') {
@@ -12207,7 +12464,7 @@ window.saveNewUser = async function(role) {
                 } else if (activeSection.includes('report')) {
                     renderMainClientReport();
                 } else if (activeSection.includes('users')) {
-                    renderMainClientUsers();  // ✅ این الان دیتا را از دیتابیس لود می‌کند
+                    renderMainClientUsers();  
                 } else if (activeSection.includes('shipments')) {
                     renderMainClientShipments();
                 } else if (activeSection.includes('alerts')) {
@@ -12216,7 +12473,10 @@ window.saveNewUser = async function(role) {
                     renderMainClientReturns();
                 } else if (activeSection.includes('history')) {
                     renderMainClientHistory();
-                } else {
+                }
+                else if (activeSection.includes('payment to admin')) 
+                    renderMainClientPaymentToAdmin();
+                 else {
                     renderMainClientInventory();
                 }
             }
