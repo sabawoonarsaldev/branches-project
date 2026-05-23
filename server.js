@@ -46,10 +46,29 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
+
 pool.getConnection()
-    .then(conn => {
+    .then(async conn => {
         console.log('Connected to MySQL successfully');
         conn.release();
+        
+        // Auto-create tables if not exist
+        try {
+            await pool.execute(`
+                CREATE TABLE IF NOT EXISTS payments_to_admin (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    main_client VARCHAR(100) NOT NULL,
+                    amount DECIMAL(10,2) NOT NULL,
+                    description TEXT,
+                    date DATE,
+                    status VARCHAR(20) DEFAULT 'unpaid',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            console.log('payments_to_admin table ready');
+        } catch (err) {
+            console.error('Error creating table:', err);
+        }
     })
     .catch(err => {
         console.error('MySQL connection error:', err);
