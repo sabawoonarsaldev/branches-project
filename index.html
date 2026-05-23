@@ -11540,15 +11540,26 @@ function renderUsers() {
                     <td>${u.id}</td>
                     <td>${u.username} ${u.role === 'admin' ? '<span class="badge badge-admin">Admin</span>' : (u.role === 'mainclient' ? '<span class="badge badge-mainclient">Main Client</span>' : '')}</td>
                     <td><span class="badge ${statusClass}">${statusText}</span></td>
+                   
                     <td>
-                 
-                        <button class="btn btn-edit" onclick="showEditUserModal(${u.id})"><i class="fas fa-edit"></i> Edit</button>
+                        <button class="btn btn-edit" onclick="showEditUserModal(${u.id})">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        ${u.role !== 'admin' ? `
+                            <button class="btn btn-warning" onclick="toggleFreezeUser(${u.id})">
+                                ${u.frozen ? '<i class="fas fa-unlock"></i> Unfreeze' : '<i class="fas fa-snowflake"></i> Freeze'}
+                            </button>
+                            <button class="btn btn-delete" onclick="toggleBlockUser(${u.id})">
+                                ${u.blocked ? '<i class="fas fa-unlock"></i> Unblock' : '<i class="fas fa-ban"></i> Block'}
+                            </button>
+                        ` : ''}
                         ${!isMainAdmin ? `
-                        <button class="btn btn-delete" onclick="deleteUser(${u.id})"><i class="fas fa-trash"></i> Delete</button>
-` : ''}
-
-
+                            <button class="btn btn-delete" onclick="deleteUser(${u.id})">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                        ` : ''}
                     </td>
+
                 </tr>
             `;
         }).join('');
@@ -11667,6 +11678,72 @@ window.saveEditUser = async function(id) {
 // Update User Function
 
 // Delete user function
+
+window.toggleFreezeUser = async function(id) {
+    let user = users.find(u => u.id === id);
+    if (!user) return;
+    
+    let newFrozen = !user.frozen;
+    let action = newFrozen ? 'freeze' : 'unfreeze';
+    
+    if (!confirm(`Are you sure you want to ${action} "${user.username}"?`)) return;
+    
+    try {
+        const response = await fetch(`/api/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: user.username,
+                password: user.password,
+                role: user.role,
+                frozen: newFrozen,
+                blocked: user.blocked,
+                deleted: user.deleted
+            })
+        });
+        
+        if (!response.ok) throw new Error('Failed to update user');
+        
+        user.frozen = newFrozen;
+        renderUsers();
+        alert(`User "${user.username}" ${newFrozen ? 'frozen' : 'unfrozen'} successfully!`);
+    } catch (err) {
+        alert('Failed to update user: ' + err.message);
+    }
+};
+
+window.toggleBlockUser = async function(id) {
+    let user = users.find(u => u.id === id);
+    if (!user) return;
+    
+    let newBlocked = !user.blocked;
+    let action = newBlocked ? 'block' : 'unblock';
+    
+    if (!confirm(`Are you sure you want to ${action} "${user.username}"?`)) return;
+    
+    try {
+        const response = await fetch(`/api/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: user.username,
+                password: user.password,
+                role: user.role,
+                frozen: user.frozen,
+                blocked: newBlocked,
+                deleted: user.deleted
+            })
+        });
+        
+        if (!response.ok) throw new Error('Failed to update user');
+        
+        user.blocked = newBlocked;
+        renderUsers();
+        alert(`User "${user.username}" ${newBlocked ? 'blocked' : 'unblocked'} successfully!`);
+    } catch (err) {
+        alert('Failed to update user: ' + err.message);
+    }
+};
 
 window.deleteUser = async function(id) {
     let user = users.find(u => u.id === id);
@@ -13095,214 +13172,15 @@ window.searchBranchHistory = function() {
         // ==================== USER MANAGEMENT FUNCTIONS ====================
 
 // Render users table for admin
-window.renderUsers = function() {
-    if (!currentUser || currentUser.role !== 'admin') return;
-    
-    // Filter out deleted users
-    let activeUsers = users.filter(u => !u.deleted);
-    
-    // Group users by role
-    let admins = activeUsers.filter(u => u.role === 'admin');
-    let branches = activeUsers.filter(u => u.role === 'branch');
-    let mainClients = activeUsers.filter(u => u.role === 'mainclient');
-    
-    let html = `
-        <div class="users-container">
-            <div class="users-header">
-                <h2>User Management</h2>
-                <div class="add-user-buttons">
-                    <button class="btn-primary" onclick="showAddAdminModal()">+ Add Admin</button>
-                    <button class="btn-primary" onclick="showAddBranchModal()">+ Add Branch</button>
-                    <button class="btn-primary" onclick="showAddMainClientModal()">+ Add Main Client</button>
-                </div>
-            </div>
-    `;
-    
-    // Admins Section
-    if (admins.length > 0) {
-        html += `
-            <div class="user-category">
-                <h3>Administrators</h3>
-                <table class="users-table">
-                    <thead>
-                        <tr>
-                            <th>Username</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </thead>
-                    <tbody>
-        `;
-        
-        admins.forEach(user => {
-            let status = '';
-            if (user.frozen) status = '❄️ Frozen';
-            else if (user.blocked) status = '🚫 Blocked';
-            else status = '✅ Active';
-            
-            html += `
-                <tr>
-                    <td>${escapeHtml(user.username)}</td>
-                    <td>Admin</td>
-                    <td>${status}</td>
-                    <td class="action-buttons">
-                        ${!user.frozen && !user.blocked ? 
-                            `<button class="btn-warning" onclick="freezeUser(${user.id})">❄️ Freeze</button>
-                             <button class="btn-danger" onclick="blockUser(${user.id})">🚫 Block</button>` : 
-                            `<button class="btn-success" onclick="unfreezeUser(${user.id})">✅ Unfreeze</button>
-                             <button class="btn-success" onclick="unblockUser(${user.id})">🔓 Unblock</button>`
-                        }
-                        <button class="btn-danger" onclick="deleteUser(${user.id})">🗑️ Delete</button>
-                    </td>
-                </tr>
-            `;
-        });
-        
-        html += `</tbody></table></div>`;
-    }
-    
-    // Branches Section
-    if (branches.length > 0) {
-        html += `
-            <div class="user-category">
-                <h3>Branches</h3>
-                <table class="users-table">
-                    <thead>
-                        <tr>
-                            <th>Username</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </thead>
-                    <tbody>
-        `;
-        
-        branches.forEach(user => {
-            let status = '';
-            if (user.frozen) status = '❄️ Frozen';
-            else if (user.blocked) status = '🚫 Blocked';
-            else status = '✅ Active';
-            
-            html += `
-                <tr>
-                    <td>${escapeHtml(user.username)}</td>
-                    <td>Branch</td>
-                    <td>${status}</td>
-                    <td class="action-buttons">
-                        ${!user.frozen && !user.blocked ? 
-                            `<button class="btn-warning" onclick="freezeUser(${user.id})">❄️ Freeze</button>
-                             <button class="btn-danger" onclick="blockUser(${user.id})">🚫 Block</button>` : 
-                            `<button class="btn-success" onclick="unfreezeUser(${user.id})">✅ Unfreeze</button>
-                             <button class="btn-success" onclick="unblockUser(${user.id})">🔓 Unblock</button>`
-                        }
-                        <button class="btn-danger" onclick="deleteUser(${user.id})">🗑️ Delete</button>
-                    </td>
-                </tr>
-            `;
-        });
-        
-        html += `</tbody></table></div>`;
-    }
-    
-    // Main Clients Section
-    if (mainClients.length > 0) {
-        html += `
-            <div class="user-category">
-                <h3>Main Clients</h3>
-                <table class="users-table">
-                    <thead>
-                        <tr>
-                            <th>Username</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </thead>
-                    <tbody>
-        `;
-        
-        mainClients.forEach(user => {
-            let status = '';
-            if (user.frozen) status = '❄️ Frozen';
-            else if (user.blocked) status = '🚫 Blocked';
-            else status = '✅ Active';
-            
-            html += `
-                <tr>
-                    <td>${escapeHtml(user.username)}</td>
-                    <td>Main Client</td>
-                    <td>${status}</td>
-                    <td class="action-buttons">
-                        ${!user.frozen && !user.blocked ? 
-                            `<button class="btn-warning" onclick="freezeUser(${user.id})">❄️ Freeze</button>
-                             <button class="btn-danger" onclick="blockUser(${user.id})">🚫 Block</button>` : 
-                            `<button class="btn-success" onclick="unfreezeUser(${user.id})">✅ Unfreeze</button>
-                             <button class="btn-success" onclick="unblockUser(${user.id})">🔓 Unblock</button>`
-                        }
-                        <button class="btn-danger" onclick="deleteUser(${user.id})">🗑️ Delete</button>
-                    </td>
-                </tr>
-            `;
-        });
-        
-        html += `</tbody></table></div>`;
-    }
-    
-    if (activeUsers.length === 0) {
-        html += `<p class="no-users">No users found. Add some users to get started.</p>`;
-    }
-    
-    html += `</div>`;
-    
-    // استفاده از 'content' به جای 'contentArea'
-    document.getElementById('content').innerHTML = html;
-};
 
 // Freeze user function
-window.freezeUser = function(userId) {
-    let user = users.find(u => u.id === userId);
-    if (user && confirm(`Are you sure you want to freeze user "${user.username}"?`)) {
-        user.frozen = true;
-        user.blocked = false;
-        saveData();
-        renderUsers();
-        alert(`User "${user.username}" has been frozen successfully.`);
-    }
-};
 
 // Block user function
-window.blockUser = function(userId) {
-    let user = users.find(u => u.id === userId);
-    if (user && confirm(`Are you sure you want to block user "${user.username}"?`)) {
-        user.blocked = true;
-        user.frozen = false;
-        saveData();
-        renderUsers();
-        alert(`User "${user.username}" has been blocked successfully.`);
-    }
-};
 
 
 // Unfreeze user function
-window.unfreezeUser = function(userId) {
-    let user = users.find(u => u.id === userId);
-    if (user && confirm(`Are you sure you want to unfreeze user "${user.username}"?`)) {
-        user.frozen = false;
-        saveData();
-        renderUsers();
-        alert(`User "${user.username}" has been unfrozen successfully.`);
-    }
-};
 
 // Unblock user function
-window.unblockUser = function(userId) {
-    let user = users.find(u => u.id === userId);
-    if (user && confirm(`Are you sure you want to unblock user "${user.username}"?`)) {
-        user.blocked = false;
-        saveData();
-        renderUsers();
-        alert(`User "${user.username}" has been unblocked successfully.`);
-    }
-};
 
 // Helper function to escape HTML
 function escapeHtml(text) {
