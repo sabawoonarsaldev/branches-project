@@ -46,6 +46,17 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
+// Local development
+// const pool = mysql.createPool({
+//     host: 'localhost',
+//     user: 'root',
+//     password: 'arsal123',  // پسورد MySQL خود را بنویس
+//     database: 'branchflow_db',
+//     waitForConnections: true,
+//     connectionLimit: 10,
+//     timezone: '+00:00'
+// });
+
 
 pool.getConnection()
     .then(async conn => {
