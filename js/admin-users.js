@@ -617,7 +617,7 @@ async function renderAdminPaymentsToAdmin() {
         html += `<div class="empty-state"><i class="fas fa-money-bill-wave"></i><h3>No Payments Yet</h3></div>`;
     } else {
         html += `<div class="table-wrapper"><table class="inventory-table" id="adminPayToAdminTable">
-            <thead><tr><th>ID</th><th>Main Client</th><th>Date</th><th>Amount</th><th>Description</th><th>Status</th></tr></thead>
+            <thead><tr><th>ID</th><th>Main Client</th><th>Date</th><th>Amount</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody id="adminPayToAdminBody">${renderAdminPayToAdminRows(payments)}</tbody>
         </table></div>`;
     }
@@ -634,8 +634,18 @@ function renderAdminPayToAdminRows(payments) {
             <td class="total-value">${formatMoney(parseFloat(p.amount))}</td>
             <td>${p.description || '-'}</td>
             <td><button class="btn ${p.status === 'paid' ? 'btn-success' : 'btn-warning'}" onclick="togglePaymentToAdminStatus(${p.id}, '${p.status}')">${p.status === 'paid' ? '✓ PAID' : '⏳ UNPAID'}</button></td>
-        </tr>`).join('');
+            <td>
+                <button class="btn btn-edit" onclick="editPaymentToAdmin(${p.id}, ${parseFloat(p.amount)}, '${(p.description || '').replace(/'/g, "\\'")}')">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-delete" onclick="deletePaymentToAdmin(${p.id})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>
+    `).join('');
 }
+
 
 window.filterAdminPaymentsToAdmin = function () {
     let search = document.getElementById('payToAdminSearch').value.toLowerCase();
@@ -715,4 +725,47 @@ window.filterAdminPaymentsFinance = function() {
             <div class="stat-value" style="color:white;font-size:20px;">${formatMoney(profit)}</div>
             <small style="color:rgba(255,255,255,0.7);">Sale - Purchase - Expenses</small>
         </div>`;
+};
+
+
+window.editPaymentToAdmin = function(id, currentAmount, currentDesc) {
+    document.getElementById('modalContent').innerHTML = `
+        <div class="modal-header"><h3>Edit Payment</h3><button onclick="closeModal()">&times;</button></div>
+        <div class="form-group"><label>Amount (AFG)</label>
+            <input type="number" id="editPayAmount" step="0.01" value="${currentAmount}">
+        </div>
+        <div class="form-group"><label>Description</label>
+            <textarea id="editPayDesc" rows="2">${currentDesc}</textarea>
+        </div>
+        <button class="save-btn" onclick="saveEditPaymentToAdmin(${id})"><i class="fas fa-save"></i> Save Changes</button>`;
+    document.getElementById('modal').classList.add('active');
+};
+
+window.saveEditPaymentToAdmin = async function(id) {
+    let amount = parseFloat(document.getElementById('editPayAmount').value);
+    let description = document.getElementById('editPayDesc').value.trim();
+    if (isNaN(amount) || amount <= 0) { alert('Please enter a valid amount'); return; }
+
+    try {
+        // آپدیت مقدار و تغییر status به unpaid
+        const res = await fetch(`/api/payments-to-admin/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount, description, status: 'unpaid' })
+        });
+        if (!res.ok) throw new Error('Failed to update');
+        closeModal();
+        await renderAdminPaymentsToAdmin ();
+        alert('Payment updated and set to UNPAID successfully!');
+    } catch(err) { alert('Failed to update: ' + err.message); }
+};
+
+window.deletePaymentToAdmin = async function(id) {
+    if (!confirm('Are you sure you want to delete this payment?')) return;
+    try {
+        const res = await fetch(`/api/payments-to-admin/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete');
+        await renderAdminPaymentsToAdmin ();
+        alert('Payment deleted successfully!');
+    } catch(err) { alert('Failed to delete: ' + err.message); }
 };

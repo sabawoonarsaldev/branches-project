@@ -46,7 +46,7 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// Local development
+// // Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
@@ -1308,6 +1308,21 @@ app.put('/api/payments-to-admin/:id/status', async (req, res) => {
         await pool.execute(
             'UPDATE payments_to_admin SET status = ? WHERE id = ?',
             [status, id]
+        );
+        const [rows] = await pool.execute('SELECT * FROM payments_to_admin WHERE id = ?', [id]);
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/payments-to-admin/:id', async (req, res) => {
+    const { id } = req.params;
+    const { amount, description, status } = req.body;
+    try {
+        await pool.execute(
+            'UPDATE payments_to_admin SET amount = ?, description = ?, status = ? WHERE id = ?',
+            [amount, description || null, status || 'unpaid', id]
         );
         const [rows] = await pool.execute('SELECT * FROM payments_to_admin WHERE id = ?', [id]);
         res.json(rows[0]);

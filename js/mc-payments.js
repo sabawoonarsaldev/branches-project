@@ -716,13 +716,19 @@ async function renderMainClientPaymentToAdmin() {
         ${payments.length === 0
             ? `<div class="empty-state"><i class="fas fa-money-bill-wave"></i><h3>No Payments Yet</h3><p>Add your first payment above</p></div>`
             : `<div class="table-wrapper"><table class="inventory-table">
-                <thead><tr><th>ID</th><th>Date</th><th>Amount</th><th>Description</th><th>Status</th></tr></thead>
+                <thead><tr><th>ID</th><th>Date</th><th>Amount</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead>
+             
                 <tbody>${payments.map(p => `
                     <tr>
-                        <td>${p.id}</td><td>${p.date ? p.date.split('T')[0] : '-'}</td>
+                        <td>${p.id}</td>
+                        <td>${p.date ? p.date.split('T')[0] : '-'}</td>
                         <td class="total-value">${formatMoney(parseFloat(p.amount))}</td>
                         <td>${p.description || '-'}</td>
                         <td><span class="badge ${p.status === 'paid' ? 'badge-paid' : 'badge-unpaid'}">${p.status === 'paid' ? 'PAID' : 'UNPAID'}</span></td>
+                        <td>
+                          <button class="btn btn-edit" onclick="editMcPaymentToAdmin(${p.id}, ${p.amount}, '${(p.description || '').replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-delete" onclick="deleteMcPaymentToAdmin(${p.id})"><i class="fas fa-trash"></i></button>
+                        </td>
                     </tr>`).join('')}
                 </tbody>
             </table></div>`
@@ -796,4 +802,48 @@ window.filterMcReportTime = function() {
             if (amountEl) amountEl.textContent = formatMoney(paymentFromBranchesFiltered);
         }
     }
+};
+
+window.editMcPaymentToAdmin = function(id, currentAmount, currentDesc) {
+    const escapedDesc = (currentDesc || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    
+    document.getElementById('modalContent').innerHTML = `
+        <div class="modal-header"><h3>Edit Payment</h3><button onclick="closeModal()">&times;</button></div>
+        <div class="form-group"><label>Amount (AFG)</label>
+            <input type="number" id="editPayAmount" step="0.01" value="${currentAmount}">
+        </div>
+        <div class="form-group"><label>Description</label>
+            <textarea id="editPayDesc" rows="2">${escapedDesc}</textarea>
+        </div>
+        <button class="save-btn" onclick="saveEditMcPaymentToAdmin(${id})"><i class="fas fa-save"></i> Save Changes</button>`;
+    document.getElementById('modal').classList.add('active');
+};
+
+window.saveEditMcPaymentToAdmin  = async function(id) {
+    let amount = parseFloat(document.getElementById('editPayAmount').value);
+    let description = document.getElementById('editPayDesc').value.trim();
+    if (isNaN(amount) || amount <= 0) { alert('Please enter a valid amount'); return; }
+
+    try {
+        // آپدیت مقدار و تغییر status به unpaid
+        const res = await fetch(`/api/payments-to-admin/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount, description, status: 'unpaid' })
+        });
+        if (!res.ok) throw new Error('Failed to update');
+        closeModal();
+        await renderMainClientPaymentToAdmin ();
+        alert('Payment updated and set to UNPAID successfully!');
+    } catch(err) { alert('Failed to update: ' + err.message); }
+};
+
+window.deleteMcPaymentToAdmin  = async function(id) {
+    if (!confirm('Are you sure you want to delete this payment?')) return;
+    try {
+        const res = await fetch(`/api/payments-to-admin/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete');
+        await renderMainClientPaymentToAdmin();
+        alert('Payment deleted successfully!');
+    } catch(err) { alert('Failed to delete: ' + err.message); }
 };
