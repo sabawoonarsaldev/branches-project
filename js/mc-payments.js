@@ -18,7 +18,7 @@ async function renderMainClientPayments() {
                     <label><i class="fas fa-code-branch"></i> Select Branch</label>
                     <select id="paymentBranchSelect" onchange="loadPaymentsByDate()">
                         <option value="">-- All Branches --</option>
-                        ${branches.map(b => `<option value="${b.username}">${b.username} Branch</option>`).join('')}
+                        ${[...branches].sort((a, b) => b.id - a.id).map(b => `<option value="${b.username}">${b.username} Branch</option>`).join('')}
                     </select>
                 </div>
                 <div class="filter-group">
@@ -94,8 +94,7 @@ function displayPayments(shipments, selectedDate, selectedBranch, mode = 'date')
             </div>
         </div>
         <div class="payment-actions" style="text-align:right;margin-bottom:20px;">
-            <button class="btn-bulk-payment" onclick="showBulkPaymentModal('${selectedDate}')" ${processedShipments.length === 0 ? 'disabled' : ''}><i class="fas fa-money-bill-wave"></i> Bulk Payment</button>
-        </div>
+<button class="btn-bulk-payment" onclick="showBulkPaymentModal('${selectedDate}', '${mode}')" ${processedShipments.length === 0 ? 'disabled' : ''}><i class="fas fa-money-bill-wave"></i> Bulk Payment</button>        </div>
         <h3 style="margin-bottom:20px;">Payment Details</h3>`;
 
     if (processedShipments.length === 0) {
@@ -129,45 +128,92 @@ function displayPayments(shipments, selectedDate, selectedBranch, mode = 'date')
     if (container) { container.style.display = 'block'; container.innerHTML = html; }
 }
 
-window.showBulkPaymentModal = function (date) {
+window.showBulkPaymentModal = function (date, mode) {
     let branch = document.getElementById('paymentBranchSelect').value;
-    let shipments = mainClientToBranchShipments.filter(s => s.date === date && (!branch || s.branch === branch));
-    let totalUnpaid = shipments.reduce((sum, s) => sum + (s.sellingPrice * s.qty - getShipmentPaidAmount(s)), 0);
+    let shipments;
+    
+    if (mode === 'alltime') {
+        shipments = mainClientToBranchShipments.filter(s => !branch || s.branch === branch);
+    } else {
+        shipments = mainClientToBranchShipments.filter(s => {
+            let sd = s.date ? s.date.split('T')[0] : '';
+            return sd === date && (!branch || s.branch === branch);
+        });
+    }
+
+    let totalUnpaid = shipments.reduce((sum, s) => {
+        let alreadyPaid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? shipmentPayments[s.uniqueKey] : 0;
+        let total = (s.sellingPrice || 0) * (s.qty || 0);
+        return sum + Math.max(0, total - alreadyPaid);
+    }, 0);
+
+    if (totalUnpaid <= 0.01) { alert('All shipments are already paid!'); return; }
 
     document.getElementById('modalContent').innerHTML = `
-        <div class="modal-header"><h3>Bulk Payment for ${date}</h3><button onclick="closeModal()">&times;</button></div>
+        <div class="modal-header"><h3>Bulk Payment ${mode === 'alltime' ? '(All Time)' : 'for ' + date}</h3><button onclick="closeModal()">&times;</button></div>
         <div class="bulk-payment-info"><h4><i class="fas fa-info-circle"></i> Payment Summary</h4>
-            <ul><li><strong>Total Bills:</strong> ${shipments.length}</li><li><strong>Total Unpaid:</strong> ${formatMoney(totalUnpaid)}</li><li><strong>Date:</strong> ${date}</li>${branch ? `<li><strong>Branch:</strong> ${branch}</li>` : ''}</ul>
+            <ul>
+                <li><strong>Total Bills:</strong> ${shipments.length}</li>
+                <li><strong>Total Unpaid:</strong> ${formatMoney(totalUnpaid)}</li>
+                ${mode !== 'alltime' ? `<li><strong>Date:</strong> ${date}</li>` : '<li><strong>Period:</strong> All Time</li>'}
+                ${branch ? `<li><strong>Branch:</strong> ${branch}</li>` : ''}
+            </ul>
         </div>
-        <div class="form-group"><label>Payment Amount (AFG)</label><input type="number" id="bulkPaymentAmount" step="0.01" min="0.01" max="${totalUnpaid}" value="${totalUnpaid}"><small style="color:#166534;">Maximum: ${formatMoney(totalUnpaid)}</small></div>
-        <div class="form-group"><label>Payment Description (Optional)</label><input type="text" id="bulkPaymentDescription" placeholder="e.g., Bulk payment for ${date}"></div>
-        <button class="save-btn" onclick="processBulkPayment('${date}')"><i class="fas fa-check"></i> Process Bulk Payment</button>`;
+        <div class="form-group">
+            <label>Payment Amount (AFG)</label>
+            <input type="number" id="bulkPaymentAmount" step="0.01" min="0.01" value="${totalUnpaid.toFixed(2)}">
+            <small style="color:#166534;">Maximum: ${formatMoney(totalUnpaid)}</small>
+        </div>
+        <button class="save-btn" onclick="processBulkPayment('${date}', ${totalUnpaid}, '${mode}')">
+            <i class="fas fa-check"></i> Process Bulk Payment
+        </button>`;
     document.getElementById('modal').classList.add('active');
 };
 
-window.processBulkPayment = async function (date) {
+window.processBulkPayment = async function (date, maxUnpaid, mode) {
     let paymentAmount = parseFloat(document.getElementById('bulkPaymentAmount').value);
-    let branch = document.getElementById('paymentBranchSelect').value;
     if (isNaN(paymentAmount) || paymentAmount <= 0) { alert('Please enter a valid payment amount'); return; }
+    if (paymentAmount > maxUnpaid + 0.01) { alert(`Payment cannot exceed ${formatMoney(maxUnpaid)}`); return; }
 
-    let shipments = mainClientToBranchShipments.filter(s => s.date === date && (!branch || s.branch === branch));
-    let totalUnpaid = shipments.reduce((sum, s) => sum + (s.sellingPrice * s.qty - getShipmentPaidAmount(s)), 0);
-    if (paymentAmount > totalUnpaid) { alert(`Payment cannot exceed ${formatMoney(totalUnpaid)}`); return; }
+    let branch = document.getElementById('paymentBranchSelect').value;
+    const btn = document.querySelector('#modalContent .save-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...'; }
 
-    let remainingPayment = paymentAmount;
-    let sortedShipments = [...shipments].sort((a, b) => new Date(a.date) - new Date(b.date));
-    for (const shipment of sortedShipments) {
-        if (remainingPayment <= 0) break;
-        let shipmentReminder = (shipment.sellingPrice * shipment.qty) - getShipmentPaidAmount(shipment);
-        if (shipmentReminder <= 0) continue;
-        let paymentForThis = Math.min(remainingPayment, shipmentReminder);
-        await processShipmentPayment(shipment, paymentForThis);
-        remainingPayment -= paymentForThis;
+    let shipments;
+    if (mode === 'alltime') {
+        shipments = mainClientToBranchShipments.filter(s => !branch || s.branch === branch);
+    } else {
+        shipments = mainClientToBranchShipments.filter(s => {
+            let sd = s.date ? s.date.split('T')[0] : '';
+            return sd === date && (!branch || s.branch === branch);
+        });
     }
+
+    let remaining = paymentAmount;
+    for (const shipment of shipments) {
+        if (remaining <= 0.01) break;
+        if (!shipment.uniqueKey) continue;
+        let alreadyPaid = shipmentPayments[shipment.uniqueKey] || 0;
+        let total = (shipment.sellingPrice || 0) * (shipment.qty || 0);
+        let unpaid = Math.max(0, total - alreadyPaid);
+        if (unpaid <= 0.01) continue;
+        let payThis = Math.min(remaining, unpaid);
+        try {
+            const res = await fetch('/api/shipment-payment', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shipment_id: shipment.uniqueKey, paid_amount: payThis })
+            });
+            if (res.ok) {
+                shipmentPayments[shipment.uniqueKey] = alreadyPaid + payThis;
+                remaining -= payThis;
+            }
+        } catch(err) { console.error('Error:', err); }
+    }
+
     closeModal();
     await refreshDataFromServer();
     await loadPaymentsByDate();
-    alert(`✅ Bulk payment of ${formatMoney(paymentAmount)} processed for ${date}!`);
+    alert(`✅ Bulk payment of ${formatMoney(paymentAmount)} processed successfully!`);
 };
 
 window.showReminderModal = function (branch, date, item, qty, price) {
@@ -389,6 +435,7 @@ window.filterMainClientInvoices = function () {
     if (container && invoices) container.innerHTML = renderMainClientInvoicesList(invoices);
 };
 
+
 window.viewMainClientInvoice = async function (invoiceNumber) {
     try {
         const response = await fetch(`/api/invoices/${invoiceNumber}`);
@@ -405,10 +452,17 @@ window.viewMainClientInvoice = async function (invoiceNumber) {
                     </div>
                     <table class="invoice-table">
                         <thead><tr><th>Item Name</th><th>Date</th><th>Quantity</th><th>Selling Price</th><th>Total Price</th></tr></thead>
-                        <tbody>${invoice.items.map(item => `<tr><td>${item.item_name}</td><td>${item.date}</td><td>${item.quantity}</td><td>${formatMoney(item.selling_price)}</td><td>${formatMoney(item.total_price)}</td></tr>`).join('')}</tbody>
-                        <tfoot><tr class="grand-total"><td colspan="3"><strong>Total Items: ${invoice.total_items}</strong></td><td></td><td><strong>${formatMoney(invoice.total_value)}</strong></td></tr></tfoot>
+                        <tbody>${invoice.items && invoice.items.length > 0 ? invoice.items.map(item => `<tr><td>${item.item_name}</td><td>${item.date || '-'}</td><td>${item.quantity}</td><td>${formatMoney(item.selling_price)}</td><td>${formatMoney(item.total_price)}</td></tr>`).join('') : '<tr><td colspan="5" style="text-align:center;">No items found</td></tr>'}</tbody>
+                        <tfoot><tr class="grand-total"><td colspan="3"><strong>Total Items: ${invoice.total_items || 0}</strong></td><td></td><td><strong>${formatMoney(invoice.total_value || 0)}</strong></td></tr></tfoot>
                     </table>
-                    <div class="invoice-total">Grand Total: ${formatMoney(invoice.total_value)}</div>
+                    <div class="all-time-summary" style="margin-top:30px;padding-top:20px;border-top:2px solid #333;">
+                        <h3 style="text-align:center;margin-bottom:15px;">Branch Summary (At Time of Invoice)</h3>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span><strong>Total Items Shipped (All Time):</strong></span><span><strong>${parseInt(invoice.all_time_total_items) || 0}</strong></span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span><strong>Total Value (All Time):</strong></span><span><strong>${formatMoney(parseFloat(invoice.all_time_total_value) || 0)}</strong></span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span><strong>Total Paid (All Time):</strong></span><span style="color:#22c55e;"><strong>${formatMoney(parseFloat(invoice.all_time_paid) || 0)}</strong></span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span><strong>Total Unpaid (All Time):</strong></span><span style="color:#ef4444;"><strong>${formatMoney(parseFloat(invoice.all_time_unpaid) || 0)}</strong></span></div>
+                    </div>
+                    <div class="invoice-total">Grand Total: ${formatMoney(invoice.total_value || 0)}</div>
                     <div class="invoice-footer"><p>Generated by ${invoice.main_client}</p><p>This is a computer generated invoice.</p></div>
                 </div>
                 <div style="text-align:center;margin-top:20px;" class="no-print">
@@ -419,6 +473,7 @@ window.viewMainClientInvoice = async function (invoiceNumber) {
         }
     } catch (err) { alert('Failed to load invoice details'); }
 };
+
 
 // ==================== MAIN CLIENT REPORT ====================
 async function renderMainClientReport() {

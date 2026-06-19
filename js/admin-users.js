@@ -366,7 +366,7 @@ function renderAdminPayments() {
                 <div class="form-group" style="flex:1;"><label><i class="fas fa-user-tie"></i> Select Main Client</label>
                     <select id="adminPaymentMainClientSelect" onchange="updateAdminPaymentBranchList()">
                         <option value="">-- All Main Clients --</option>
-                        ${mainClientUsersList.map(u => `<option value="${u.username}">${u.username}</option>`).join('')}
+                        ${[...mainClientUsersList].sort((a, b) => b.id - a.id).map(u => `<option value="${u.username}">${u.username}</option>`).join('')}
                     </select>
                 </div>
                 <div class="form-group" style="flex:1;"><label><i class="fas fa-code-branch"></i> Select Branch</label>
@@ -617,7 +617,7 @@ async function renderAdminPaymentsToAdmin() {
         html += `<div class="empty-state"><i class="fas fa-money-bill-wave"></i><h3>No Payments Yet</h3></div>`;
     } else {
         html += `<div class="table-wrapper"><table class="inventory-table" id="adminPayToAdminTable">
-            <thead><tr><th>ID</th><th>Main Client</th><th>Date</th><th>Amount</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>ID</th><th>Main Client</th><th>Date</th><th>Amount</th><th>Description</th><th>Status</th></tr></thead>
             <tbody id="adminPayToAdminBody">${renderAdminPayToAdminRows(payments)}</tbody>
         </table></div>`;
     }
@@ -634,14 +634,7 @@ function renderAdminPayToAdminRows(payments) {
             <td class="total-value">${formatMoney(parseFloat(p.amount))}</td>
             <td>${p.description || '-'}</td>
             <td><button class="btn ${p.status === 'paid' ? 'btn-success' : 'btn-warning'}" onclick="togglePaymentToAdminStatus(${p.id}, '${p.status}')">${p.status === 'paid' ? '✓ PAID' : '⏳ UNPAID'}</button></td>
-            <td>
-                <button class="btn btn-edit" onclick="editPaymentToAdmin(${p.id}, ${parseFloat(p.amount)}, '${(p.description || '').replace(/'/g, "\\'")}')">
-                    <i class="fas fa-edit"></i>
-                </button>
-                <button class="btn btn-delete" onclick="deletePaymentToAdmin(${p.id})">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </td>
+            
         </tr>
     `).join('');
 }

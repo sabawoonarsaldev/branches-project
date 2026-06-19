@@ -651,7 +651,7 @@ async function getMainClientItems() {
 
     let results = [];
     for (let item of mainClientItems) {
-        let distributed = mainClientDistributed[item.name] || 0;
+        let distributed = mainClientDistributed[item.name.trim()] || 0;
         let remainingQuantity = Math.max(0, item.quantity - distributed);
         let isReturnedItem = item.supplier && item.supplier.includes('Returned from');
         let isPaid = isReturnedItem ? true : await isMainClientItemPaid(item);
@@ -669,7 +669,7 @@ function calculateRemainingStockInMainClients(itemName) {
     let totalRemaining = 0;
     for (let mainItem of mainClientItems) {
         if (mainItem.name === itemName) {
-            let distributed = mainClientDistributed[mainItem.name] || 0;
+            let distributed = mainClientDistributed[mainItem.name.trim()] || 0;
             let remaining = (mainItem.quantity || 0) - distributed;
             if (remaining > 0) totalRemaining += remaining;
         }
@@ -977,5 +977,15 @@ function deleteItemFromAllLocations(itemId, itemName) {
     invoices = data.invoices; branchReturns = data.branchReturns;
     mainClientDistributed = data.mainClientDistributed; itemDiscounts = data.itemDiscounts;
     dailyPayments = data.dailyPayments; billPayments = data.billPayments; branchBills = data.branchBills;
+    shipmentPayments = data.shipmentPayments || {};
     console.log('Initialization complete. Users:', users.length, 'Inventory:', mainInventory.length);
 })();
+
+
+function sortByDateDesc(arr, dateField = 'date') {
+    return [...arr].sort((a, b) => {
+        let da = new Date(a[dateField] || 0);
+        let db = new Date(b[dateField] || 0);
+        return db - da;
+    });
+}

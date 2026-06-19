@@ -208,6 +208,9 @@ async function renderBranchSale() {
                     <i class="fas fa-info-circle"></i><strong>Note:</strong> Selling price is fixed based on admin settings.
                 </div>
                 <div class="form-group"><label>Bill Number (Invoice Number)</label>
+                <div class="form-group"><label>Customer Name</label>
+                    <input type="text" id="customerName" placeholder="Enter customer name" required>
+                </div>
                     <input type="text" id="billNumber" placeholder="Enter bill number (e.g., INV-001)" required>
                     <small style="color:#64748b;">Enter a unique bill number for this sale</small>
                 </div>
@@ -222,6 +225,9 @@ async function renderBranchSale() {
                 <div class="form-group"><label>Selling Price (AFG) - Fixed</label><input type="number" id="salePrice" step="0.01" readonly style="background:#f1f5f9;cursor:not-allowed;"></div>
                 <div class="form-group"><label>Total Amount</label><input type="text" id="saleTotal" value="AFG 0.00" readonly style="background:#f1f5f9;font-weight:700;color:#166534;"></div>
                 <button class="action-btn" onclick="recordSale()" id="saleBtn" style="width:100%;"><i class="fas fa-cash-register"></i> Record Sale</button>
+                <button class="action-btn" onclick="showMultiSaleForm()" style="width:100%;margin-top:10px;background:#3b82f6;">
+                    <i class="fas fa-layer-group"></i> Multi Sale
+                </button>
             </div>`;
     }
     document.getElementById('content').innerHTML = html;
@@ -284,6 +290,8 @@ window.recordSale = async function () {
     let purchasePrice = parseFloat(opt.dataset.purchase);
     let qty = parseInt(document.getElementById('saleQty').value);
     let billNumber = document.getElementById('billNumber').value.trim();
+    let customerName = document.getElementById('customerName').value.trim();
+    if (!customerName) { showSmallAlert('Please enter Customer Name'); return; }
 
     if (!billNumber) { showSmallAlert('Please enter a Bill Number'); return; }
 
@@ -311,7 +319,7 @@ window.recordSale = async function () {
     try {
         const saleResponse = await fetch('/api/sales', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: getTodayDate(), branch, item: itemName, qty, price: sellingPrice, purchase_price: purchasePrice, revenue, cost, profit, bill_number: billNumber })
+            body: JSON.stringify({ date: getTodayDate(), branch, item: itemName, qty, price: sellingPrice, purchase_price: purchasePrice, revenue, cost, profit, bill_number: billNumber, customer_name: customerName })
         });
         if (!saleResponse.ok) throw new Error('Failed to save sale');
 
@@ -338,7 +346,8 @@ async function renderBranchBilling() {
             let bills = {};
             salesData.forEach(sale => {
                 if (!bills[sale.bill_number]) bills[sale.bill_number] = [];
-                bills[sale.bill_number].push({ date: sale.date.split('T')[0], item: sale.item, qty: sale.qty, price: parseFloat(sale.price), revenue: parseFloat(sale.revenue) });
+                bills[sale.bill_number].push({ date: sale.date.split('T')[0], item: sale.item, qty: sale.qty, price: parseFloat(sale.price), revenue: parseFloat(sale.revenue),     customerName: sale.customer_name || ''  
+});
             });
             branchBills[branch] = bills;
         }
@@ -362,7 +371,9 @@ async function renderBranchBilling() {
                     ${billNumbers.map(bill => {
                         let billDate = bills[bill][0]?.date || 'Unknown date';
                         let totalPrice = bills[bill].reduce((sum, item) => sum + item.revenue, 0);
-                        return `<option value="${bill}">${bill} - ${formatMoney(totalPrice)} (${billDate})</option>`;
+                        let customerN = bills[bill][0]?.customerName || '';
+                        let displayLabel = customerN ? `${bill} - ${customerN}` : bill;
+                        return `<option value="${bill}">${displayLabel} - ${formatMoney(totalPrice)} (${billDate})</option>`;
                     }).join('')}
                 </select>
             </div>
@@ -593,4 +604,157 @@ window.deleteBranchExpense = async function (id) {
             saveData(); renderBranchExpenses(); alert('Expense deleted successfully!');
         } catch (error) { alert('Failed to delete expense.'); }
     }
+};
+
+window.showMultiSaleForm = async function() {
+    let branch = currentUser.username;
+    let items = branchInventory[branch] || [];
+    
+    let groupedItems = {};
+    items.forEach(item => {
+        if (!groupedItems[item.name]) groupedItems[item.name] = { name: item.name, quantity: 0, sellingPrice: item.sellingPrice, purchasePrice: item.purchasePrice };
+        groupedItems[item.name].quantity += item.quantity;
+    });
+    let groupedArray = Object.values(groupedItems);
+
+    let itemCheckboxes = groupedArray.map(item => `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px;background:white;border-radius:12px;margin-bottom:8px;border:2px solid #bbf7d0;">
+            <input type="checkbox" id="mschk_${item.name.replace(/\s/g,'_')}" value="${item.name}"
+                data-price="${item.sellingPrice}" data-max="${item.quantity}"
+                onchange="updateMultiSaleTable()"
+                style="width:20px;height:20px;cursor:pointer;">
+            <label for="mschk_${item.name.replace(/\s/g,'_')}" style="flex:1;cursor:pointer;color:#166534;font-weight:500;">
+                ${item.name}
+                <span style="color:#64748b;font-size:13px;">(Stock: ${item.quantity} | ${formatMoney(item.sellingPrice)})</span>
+            </label>
+        </div>`).join('');
+
+    document.getElementById('modalContent').innerHTML = `
+        <div class="modal-header"><h3><i class="fas fa-layer-group"></i> Multi Sale</h3><button onclick="closeModal()">&times;</button></div>
+        <div class="form-group"><label>Bill Number</label>
+            <input type="text" id="multisaleBillNumber" placeholder="Enter bill number (e.g., INV-001)" class="form-control">
+        </div>
+        <div class="form-group"><label>Customer Name</label>
+            <input type="text" id="multiCustomerName" placeholder="Enter customer name" class="form-control">
+        </div>
+        <div class="form-group"><label>Select Items</label>
+            <div style="max-height:250px;overflow-y:auto;padding:10px;background:#f0fdf4;border-radius:12px;border:2px solid #bbf7d0;">
+                ${itemCheckboxes.length > 0 ? itemCheckboxes : '<p style="color:#64748b;text-align:center;">No items available</p>'}
+            </div>
+        </div>
+        <div id="multiSaleTable" style="display:none;margin-top:20px;">
+            <h4 style="color:#166534;margin-bottom:12px;">Selected Items - Enter Quantity</h4>
+            <div class="table-wrapper">
+                <table class="inventory-table">
+                    <thead><tr><th>Item Name</th><th>Available</th><th>Quantity</th><th>Price/Unit</th><th>Total</th></tr></thead>
+                    <tbody id="multiSaleTableBody"></tbody>
+                </table>
+            </div>
+            <div style="background:#f0fdf4;padding:16px;border-radius:12px;margin-top:12px;border:2px solid #bbf7d0;">
+                <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:#166534;">
+                    <span>Grand Total:</span>
+                    <span id="multiSaleGrandTotal">AFG 0.00</span>
+                </div>
+            </div>
+        </div>
+        <button class="save-btn" onclick="processMultiSale()" id="multiSaleBtn" style="margin-top:20px;" disabled>
+            <i class="fas fa-cash-register"></i> Record All Sales
+        </button>`;
+    document.getElementById('modal').classList.add('active');
+};
+
+window.updateMultiSaleTable = function() {
+    let checkboxes = document.querySelectorAll('#modalContent input[type="checkbox"]:checked');
+    let tbody = document.getElementById('multiSaleTableBody');
+    let tableDiv = document.getElementById('multiSaleTable');
+    let btn = document.getElementById('multiSaleBtn');
+    if (checkboxes.length === 0) { tableDiv.style.display = 'none'; btn.disabled = true; return; }
+    tableDiv.style.display = 'block';
+    let rows = '';
+    checkboxes.forEach(chk => {
+        let name = chk.value, price = parseFloat(chk.dataset.price), max = parseInt(chk.dataset.max);
+        let inputId = `msqty_${name.replace(/\s/g,'_')}`;
+        rows += `<tr>
+            <td><strong>${name}</strong></td>
+            <td>${max}</td>
+            <td><input type="number" id="${inputId}" min="1" max="${max}" value="1"
+                style="width:70px;padding:6px;border:2px solid #bbf7d0;border-radius:8px;text-align:center;"
+                onchange="updateMultiSaleTotal('${name.replace(/'/g,"\\'")}', ${price}, ${max}, this)"></td>
+            <td>${formatMoney(price)}</td>
+            <td id="mstotal_${name.replace(/\s/g,'_')}" class="total-value">${formatMoney(price)}</td>
+        </tr>`;
+    });
+    tbody.innerHTML = rows;
+    btn.disabled = false;
+    updateMultiSaleGrandTotal();
+};
+
+window.updateMultiSaleTotal = function(name, price, max, input) {
+    let qty = Math.min(Math.max(parseInt(input.value) || 1, 1), max);
+    input.value = qty;
+    let cell = document.getElementById(`mstotal_${name.replace(/\s/g,'_')}`);
+    if (cell) cell.textContent = formatMoney(price * qty);
+    updateMultiSaleGrandTotal();
+};
+
+function updateMultiSaleGrandTotal() {
+    let checkboxes = document.querySelectorAll('#modalContent input[type="checkbox"]:checked');
+    let grand = 0;
+    checkboxes.forEach(chk => {
+        let name = chk.value, price = parseFloat(chk.dataset.price);
+        let qty = parseInt(document.getElementById(`msqty_${name.replace(/\s/g,'_')}`)?.value) || 1;
+        grand += price * qty;
+    });
+    let el = document.getElementById('multiSaleGrandTotal');
+    if (el) el.textContent = formatMoney(grand);
+}
+
+window.processMultiSale = async function() {
+    let billNumber = document.getElementById('multisaleBillNumber').value.trim();
+    let customerName = document.getElementById('multiCustomerName').value.trim();
+    if (!customerName) { alert('Please enter Customer Name'); return; }
+    if (!billNumber) { alert('Please enter a Bill Number'); return; }
+    let checkboxes = document.querySelectorAll('#modalContent input[type="checkbox"]:checked');
+    if (checkboxes.length === 0) { alert('Please select at least one item'); return; }
+    let btn = document.getElementById('multiSaleBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...'; }
+    let branch = currentUser.username;
+    let errors = [], successCount = 0;
+
+    for (let chk of checkboxes) {
+        let itemName = chk.value, price = parseFloat(chk.dataset.price);
+        let qty = parseInt(document.getElementById(`msqty_${itemName.replace(/\s/g,'_')}`)?.value) || 1;
+        let itemsToSell = branchInventory[branch].filter(i => i.name === itemName);
+        let totalAvailable = itemsToSell.reduce((sum, i) => sum + i.quantity, 0);
+        if (totalAvailable < qty) { errors.push(`${itemName}: insufficient stock (available: ${totalAvailable})`); continue; }
+        let remaining = qty;
+        for (let item of itemsToSell) {
+            if (remaining <= 0) break;
+            let take = Math.min(item.quantity, remaining);
+            try {
+                await fetch(`/api/branch-inventory/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: item.quantity - take }) });
+                item.quantity -= take;
+            } catch(err) {}
+            remaining -= take;
+        }
+        branchInventory[branch] = branchInventory[branch].filter(i => i.quantity > 0);
+        let purchasePrice = itemsToSell[0]?.purchasePrice || 0;
+        let revenue = qty * price, cost = qty * purchasePrice, profit = revenue - cost;
+        try {
+            await fetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: getTodayDate(), branch, item: itemName, qty, price, purchase_price: purchasePrice, revenue, cost, profit, bill_number: billNumber, customer_name: customerName }) });
+            salesHistory.push({ date: getTodayDate(), branch, item: itemName, qty, price, purchasePrice, revenue, cost, profit, billNumber });
+            if (!branchBills[branch]) branchBills[branch] = {};
+            if (!branchBills[branch][billNumber]) branchBills[branch][billNumber] = [];
+            branchBills[branch][billNumber].push({ date: getTodayDate(), item: itemName, qty, price, revenue });
+            if (!branchFinance[branch]) branchFinance[branch] = { totalSale: 0, totalPurchase: 0, totalProfit: 0, totalLoss: 0, totalExpenses: 0 };
+            branchFinance[branch].totalSale += revenue;
+            branchFinance[branch].totalProfit += profit;
+            successCount++;
+        } catch(err) { errors.push(`${itemName}: ${err.message}`); }
+    }
+    saveData(); recalcMainFinance();
+    closeModal();
+    await renderBranchSale();
+    if (errors.length > 0) alert(`✅ ${successCount} item(s) sold!\n\n❌ Errors:\n${errors.join('\n')}`);
+    else showSmallAlert(`✅ ${successCount} item(s) sold successfully!`);
 };

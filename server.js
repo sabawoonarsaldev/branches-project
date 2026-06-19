@@ -37,7 +37,6 @@ const pool = mysql.createPool({
     waitForConnections: true,
     connectionLimit: 10,
 
-    // important for Aiven
     ssl: {
         ca: fs.readFileSync(ca_path),
         rejectUnauthorized: true
@@ -46,7 +45,7 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// // Local development
+// // // Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
@@ -201,17 +200,18 @@ app.get('/api/main-client-distributed/:mainClient', async (req, res) => {
 
 app.post('/api/main-client-distributed', async (req, res) => {
     const { main_client, item_name, distributed_quantity } = req.body;
+    const cleanItemName = item_name.trim();
     try {
         const [result] = await pool.execute(
-            `INSERT INTO main_client_distributed (main_client, item_name, distributed_quantity) 
+            `INSERT INTO main_client_distributed (main_client, cleanItemName , distributed_quantity) 
              VALUES (?, ?, ?)
              ON DUPLICATE KEY UPDATE distributed_quantity = distributed_quantity + ?`,
-            [main_client, item_name, distributed_quantity, distributed_quantity]
+            [main_client, cleanItemName , distributed_quantity, distributed_quantity]
         );
 
         const [rows] = await pool.execute(
-            'SELECT * FROM main_client_distributed WHERE main_client = ? AND item_name = ?',
-            [main_client, item_name]
+            'SELECT * FROM main_client_distributed WHERE main_client = ? AND cleanItemName  = ?',
+            [main_client, cleanItemName ]
         );
         res.json(rows[0]);
     } catch (err) {
@@ -323,6 +323,16 @@ app.post('/api/branch-inventory', async (req, res) => {
     }
 });
 
+app.get('/api/sales/all', async (req, res) => {
+    try {
+        const [rows] = await pool.execute('SELECT * FROM sales_history ORDER BY date DESC');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 // ============= SALES API =============
 app.get('/api/sales/:branch', async (req, res) => {
     const { branch } = req.params;
@@ -335,12 +345,11 @@ app.get('/api/sales/:branch', async (req, res) => {
 });
 
 app.post('/api/sales', async (req, res) => {
-    const { date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number } = req.body;
+    const { date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number, customer_name } = req.body;
     try {
         const [result] = await pool.execute(
-            `INSERT INTO sales_history (date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number]
+           'INSERT INTO sales_history (date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number, customer_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number, customer_name || null]
         );
 
         const [rows] = await pool.execute('SELECT * FROM sales_history WHERE id = ?', [result.insertId]);

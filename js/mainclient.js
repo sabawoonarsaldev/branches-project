@@ -36,8 +36,9 @@ async function renderMainClientInventory() {
 }
 
 function renderMainClientInventoryRows(items) {
+    items = [...items].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
     return items.map((item, index) => {
-        let distributed = mainClientDistributed[item.name] || 0;
+        let distributed = mainClientDistributed[item.name.trim()] || 0;
         let remainingQuantity = Math.max(0, item.quantity - distributed);
         let totalValue = (item.sellingPrice || 0) * remainingQuantity;
         let discount = getItemDiscount(item.name);
@@ -115,6 +116,11 @@ async function renderMainClientFinance() {
     let totalPaidToAdmin = clientItems.filter(i => i.paid === true).reduce((sum, i) => sum + ((i.sellingPrice || 0) * (i.quantity || 0)), 0);
     let totalUnpaidToAdmin = clientItems.filter(i => i.paid !== true).reduce((sum, i) => sum + ((i.sellingPrice || 0) * (i.quantity || 0)), 0);
     let totalExpenses = clientExps.reduce((sum, exp) => sum + exp.amount, 0);
+    let totalDistributedValue = mainClientToBranchShipments.reduce((sum, s) => {
+    return sum + ((s.sellingPrice || 0) * (s.qty || 0));
+    }, 0);
+    let approvedReturnValue = approvedReturns.reduce((sum, r) => sum + ((r.quantity || 0) * (r.pricePerUnit || 0)), 0);
+    let netDistributedValue = totalOriginalItemsValue - (totalRemainingItemsValue);
 
     let html = `
         <div class="header-actions"><h2 class="page-title">My Financial Overview</h2><button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button></div>
@@ -125,6 +131,12 @@ async function renderMainClientFinance() {
             <div class="stat-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;"><i class="fas fa-check-circle" style="color:white;"></i><h4 style="color:rgba(255,255,255,0.8);">Total Paid to Admin</h4><div class="stat-value" style="color:white;">${formatMoney(totalPaidToAdmin)}</div></div>
             <div class="stat-card" style="background:linear-gradient(145deg,#ef4444,#b91c1c);color:white;"><i class="fas fa-clock" style="color:white;"></i><h4 style="color:rgba(255,255,255,0.8);">Total Unpaid to Admin</h4><div class="stat-value" style="color:white;">${formatMoney(totalUnpaidToAdmin)}</div></div>
             <div class="stat-card expense-card"><i class="fas fa-file-invoice"></i><h4>Total Expenses</h4><div class="stat-value">${formatMoney(totalExpenses)}</div></div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#8b5cf6,#7c3aed);color:white;">
+                <i class="fas fa-share-alt" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Total Distribute Value</h4>
+                <div class="stat-value" style="color:white;">${formatMoney(netDistributedValue)}</div>
+                <small style="color:rgba(255,255,255,0.7);">Original - Remaining</small>
+            </div>
         </div>
         <div class="payment-summary" style="margin-top:20px;">
             <h3><i class="fas fa-chart-pie"></i> Payment Summary</h3>
@@ -413,7 +425,7 @@ window.distributeToBranch = async function () {
     let sharedItem = mainClientItems.find(i => i.name === itemName);
     if (!sharedItem) { alert('Item not found!'); return; }
 
-    let distributedKey = itemName;
+    let distributedKey = itemName.trim();
     let currentDistributed = mainClientDistributed[distributedKey] || 0;
     let remainingQuantity = sharedItem.quantity - currentDistributed;
 

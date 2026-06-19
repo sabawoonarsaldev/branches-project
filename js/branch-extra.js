@@ -52,7 +52,6 @@ async function renderBranchFinance() {
         <div class="stats-grid">
             <div class="stat-card"><i class="fas fa-shopping-cart"></i><h4>Total Sales (Revenue)</h4><div class="stat-value total-value" style="color:#22c55e;">${formatMoney(totalSale)}</div><small>From all sales</small></div>
             <div class="stat-card"><i class="fas fa-truck"></i><h4>Total Purchases (Cost)</h4><div class="stat-value total-value" style="color:#f59e0b;">${formatMoney(totalPurchase)}</div><small>From main client shipments</small></div>
-            <div class="stat-card profit-card"><i class="fas fa-chart-line"></i><h4>Gross Profit</h4><div class="stat-value ${grossProfit >= 0 ? 'profit-text' : 'loss-text'}">${formatMoney(grossProfit)}</div><small>Sales - Purchases</small></div>
             <div class="stat-card expense-card"><i class="fas fa-file-invoice"></i><h4>Total Expenses</h4><div class="stat-value" style="color:#dc2626;">${formatMoney(totalExpenses)}</div><small>${expensesList.length} expense(s)</small></div>
         </div>
         <div class="stat-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;margin-top:20px;">
@@ -85,20 +84,18 @@ async function renderBranchFinance() {
         let lastTen = branchSales.slice(-10).reverse();
         html += `<h3 style="margin:30px 0 20px;">Recent Sales (Last 10)</h3>
         <div class="table-wrapper"><table class="inventory-table">
-            <thead><tr><th>Date</th><th>Item</th><th>Quantity</th><th>Selling Price</th><th>Revenue</th><th>Profit</th><th>Bill Number</th></tr></thead>
+            <thead><tr><th>Date</th><th>Item</th><th>Quantity</th><th>Selling Price</th><th>Revenue</th><th>Bill Number</th></tr></thead>
             <tbody>${lastTen.map(s => `
                 <tr>
                     <td>${s.date}</td><td>${s.item}</td><td>${s.qty}</td>
                     <td>${formatMoney(s.price)}</td>
                     <td style="color:#22c55e;font-weight:600;">${formatMoney(s.revenue)}</td>
-                    <td class="${s.profit >= 0 ? 'profit-text' : 'loss-text'}">${formatMoney(s.profit)}</td>
                     <td>${s.billNumber || '-'}</td>
                 </tr>`).join('')}
             </tbody>
             <tfoot><tr class="grand-total">
                 <td colspan="4"><strong>Total (Last 10)</strong></td>
                 <td><strong>${formatMoney(lastTen.reduce((sum, s) => sum + s.revenue, 0))}</strong></td>
-                <td><strong>${formatMoney(lastTen.reduce((sum, s) => sum + s.profit, 0))}</strong></td>
                 <td></td>
             </tr></tfoot>
         </table></div>`;
@@ -325,14 +322,13 @@ function renderBranchCompleteReport() {
         return;
     }
 
-    html += `
+        html += `
         <div class="search-container">
             <div class="search-box"><i class="fas fa-search"></i>
                 <input type="text" id="productSearchInput" placeholder="Search products..." onkeyup="searchBranchProducts()">
             </div>
             <div class="search-results" id="productSearchResults">Showing ${inventory.length} products</div>
         </div>
-
         <div class="report-grid">
             <div class="report-card">
                 <h3><i class="fas fa-boxes"></i> Inventory Summary</h3>
@@ -351,6 +347,17 @@ function renderBranchCompleteReport() {
                     <div style="display:flex;justify-content:space-between;"><span>Pending Returns:</span><span><strong style="color:#f59e0b;">${pendingReturns}</strong></span></div>
                 </div>
             </div>
+        </div>`;
+
+    let branchSalesAll = salesHistory.filter(s => s.branch === branch);
+    let totalSaleAmount = branchSalesAll.reduce((sum, s) => sum + (s.revenue || 0), 0);
+
+    html += `
+        <div class="stat-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;margin-bottom:30px;">
+            <i class="fas fa-cash-register" style="color:white;"></i>
+            <h4 style="color:rgba(255,255,255,0.8);">Total Sale</h4>
+            <div class="stat-value" style="color:white;font-size:32px;">${formatMoney(totalSaleAmount)}</div>
+            <small style="color:rgba(255,255,255,0.7);">Total revenue from all sales</small>
         </div>
 
         <h3 style="margin:30px 0 20px;">Product Details</h3>
@@ -406,7 +413,6 @@ function renderProductDetails(inventory, shipments, branch) {
                     <div class="stat-item"><div class="stat-label">Returned</div><div class="stat-value" style="color:#f59e0b;">${returnedQty}</div></div>
                     <div class="stat-item"><div class="stat-label">In Stock</div><div class="stat-value">${item.quantity}</div></div>
                     <div class="stat-item"><div class="stat-label">Revenue</div><div class="stat-value profit-text">${formatMoney(revenue)}</div></div>
-                    <div class="stat-item"><div class="stat-label">Profit</div><div class="stat-value ${profit >= 0 ? 'profit-text' : 'loss-text'}">${formatMoney(profit)}</div></div>
                 </div>
                 <div id="${uniqueId}" style="display:none;margin-top:20px;">
                     ${itemShipments.length > 0 ? `

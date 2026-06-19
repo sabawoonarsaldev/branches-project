@@ -71,6 +71,7 @@ function renderInventory() {
 
 function renderInventoryRows(items) {
     if (!items || items.length === 0) return '<tr><td colspan="12" style="text-align:center;">No items found</td></tr>';
+    items = [...items].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
     return items.map((item, index) => {
         const purchasePrice = parseFloat(item.purchasePrice) || parseFloat(item.purchase_price) || 0;
         const sellingPrice = parseFloat(item.sellingPrice) || parseFloat(item.selling_price) || 0;
@@ -223,7 +224,23 @@ window.deleteItem = async function (id) {
 };
 
 // ==================== ADMIN FINANCE ====================
+
 async function renderFinance() {
+    // اول همه سیل‌ها را لود کن
+    try {
+        const allSalesRes = await fetch('/api/sales/all');
+        if (allSalesRes.ok) {
+            const allSalesData = await allSalesRes.json();
+            salesHistory = allSalesData.map(s => ({
+                id: s.id, date: s.date ? s.date.split('T')[0] : getTodayDate(),
+                branch: s.branch, item: s.item, qty: parseInt(s.qty),
+                price: parseFloat(s.price), purchasePrice: parseFloat(s.purchase_price),
+                revenue: parseFloat(s.revenue), cost: parseFloat(s.cost),
+                profit: parseFloat(s.profit), billNumber: s.bill_number
+            }));
+        }
+    } catch (err) { console.log('Error loading all sales:', err); }
+
     try {
         const response = await fetch('/api/expenses/all');
         if (response.ok) {
@@ -250,8 +267,7 @@ async function renderFinance() {
             <div class="stat-card"><i class="fas fa-shopping-cart"></i><h4>Total Purchases (Cost)</h4><div class="stat-value total-value">${formatMoney(mainFinance.totalPurchase)}</div><small>Sum of (Purchase Price × Quantity)</small></div>
             <div class="stat-card"><i class="fas fa-tags"></i><h4>Total Sales (Revenue)</h4><div class="stat-value total-value">${formatMoney(mainFinance.totalSale)}</div><small>Sum of (Selling Price × Quantity)</small></div>
             <div class="stat-card profit-card"><i class="fas fa-chart-line"></i><h4>Total Profit</h4><div class="stat-value ${mainFinance.totalProfit >= 0 ? 'profit-text' : 'loss-text'}">${formatMoney(mainFinance.totalProfit)}</div><small>Sales - Purchases - Expenses</small></div>
-            <div class="stat-card expense-card"><i class="fas fa-file-invoice"></i><h4>Total Expenses</h4><div class="stat-value">${formatMoney(mainFinance.totalExpenses)}</div></div>
-            <small>Admin + Main Client only</small>
+            <div class="stat-card expense-card"><i class="fas fa-file-invoice"></i><h4>Total Expenses</h4><div class="stat-value">${formatMoney(mainFinance.totalExpenses)}</div><small>Admin + Main Client only</small></div>
         </div>
         <div class="btn-group"><button class="action-btn" onclick="showAddExpenseModal()"><i class="fas fa-plus-circle"></i> Add New Expense</button></div>`;
 
@@ -291,6 +307,7 @@ async function renderFinance() {
     }
     document.getElementById('content').innerHTML = html;
 }
+
 
 // ==================== ADMIN EXPENSES ====================
 async function renderExpenses() {
@@ -568,7 +585,7 @@ async function showMainClientReportInAdmin(client) {
         </div>`;
 }
 
-function showBranchReportInAdmin(branch) {
+async function showBranchReportInAdmin(branch) {
     let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
     let totalReceivedValue = branchShipments.reduce((sum, s) => sum + ((s.sellingPrice || 0) * (s.qty || 0)), 0);
     let inventory = branchInventory[branch] || [];
@@ -578,8 +595,7 @@ function showBranchReportInAdmin(branch) {
     let paymentSummary = getBranchPaymentSummary(branch);
     let salesSummary = getBranchSalesSummary(branch);
 
-    document.getElementById('clientReportContainer').style.display = 'block';
-    document.getElementById('clientReportContainer').innerHTML = `
+    let html = `
         <h3 style="margin-bottom:20px;">Branch Report: ${branch}</h3>
         <div class="report-grid">
             <div class="report-card"><h3><i class="fas fa-truck"></i> Received</h3><div class="report-number">${branchShipments.reduce((s, sh) => s + sh.qty, 0)}</div><div class="report-label">Items Received</div>
@@ -596,35 +612,45 @@ function showBranchReportInAdmin(branch) {
             </div>
         </div>`;
 
-
-        let branchSalesData = salesHistory.filter(s => s.branch === branch);
-
-        html += `
-            <h3 style="margin:30px 0 20px;">Branch Sales</h3>`;
-
-        if (branchSalesData.length === 0) {
-            html += `<div class="empty-state"><i class="fas fa-shopping-cart"></i><h3>No Sales Yet</h3></div>`;
-        } else {
-            let totalSalePrice = branchSalesData.reduce((sum, s) => sum + s.revenue, 0);
-            html += `
-                <div class="table-wrapper"><table class="inventory-table">
-                    <thead><tr><th>Item Name</th><th>Stock Sold</th><th>Sale Date</th><th>Price per Unit</th><th>Total Price</th></tr></thead>
-                    <tbody>${branchSalesData.sort((a,b) => new Date(b.date) - new Date(a.date)).map(s => `
-                        <tr>
-                            <td>${s.item}</td><td>${s.qty}</td><td>${s.date}</td>
-                            <td>${formatMoney(s.price)}</td>
-                            <td class="total-value">${formatMoney(s.revenue)}</td>
-                        </tr>`).join('')}
-                    </tbody>
-                    <tfoot><tr class="grand-total">
-                        <td colspan="4"><strong>Total Sale Price</strong></td>
-                        <td><strong>${formatMoney(totalSalePrice)}</strong></td>
-                    </tr></tfoot>
-                </table></div>`;
+    let branchSalesData = [];
+    try {
+        const salesRes = await fetch(`/api/sales/${branch}`);
+        if (salesRes.ok) {
+            branchSalesData = (await salesRes.json()).map(s => ({
+                date: s.date ? s.date.split('T')[0] : '-',
+                item: s.item, qty: parseInt(s.qty),
+                price: parseFloat(s.price), revenue: parseFloat(s.revenue),
+                customer_name: s.customer_name || '-'
+            }));
         }
+    } catch(err) {}
 
-        document.getElementById('clientReportContainer').style.display = 'block';
-        document.getElementById('clientReportContainer').innerHTML = html;
+    let totalSaleRevenue = branchSalesData.reduce((sum, s) => sum + s.revenue, 0);
+
+    html += `<h3 style="margin:30px 0 20px;">Branch Sales</h3>`;
+    if (branchSalesData.length === 0) {
+        html += `<div class="empty-state"><i class="fas fa-shopping-cart"></i><h3>No Sales Yet</h3></div>`;
+    } else {
+        html += `
+            <div class="table-wrapper"><table class="inventory-table">
+                <thead><tr><th>Item Name</th><th>Qty Sold</th><th>Sale Date</th><th>Price/Unit</th><th>Total Price</th><th>Customer Name</th></tr></thead>
+                <tbody>${branchSalesData.sort((a,b) => new Date(b.date) - new Date(a.date)).map(s => `
+                    <tr>
+                        <td>${s.item}</td><td>${s.qty}</td><td>${s.date}</td>
+                        <td>${formatMoney(s.price)}</td>
+                        <td class="total-value">${formatMoney(s.revenue)}</td>
+                        <td>${s.customer_name}</td>
+                    </tr>`).join('')}
+                </tbody>
+                <tfoot><tr class="grand-total">
+                    <td colspan="5"><strong>Total Sale Price</strong></td>
+                    <td><strong>${formatMoney(totalSaleRevenue)}</strong></td>
+                </tr></tfoot>
+            </table></div>`;
+    }
+
+    document.getElementById('clientReportContainer').style.display = 'block';
+    document.getElementById('clientReportContainer').innerHTML = html;
 }
 
 // ==================== TOTAL AMOUNT (ADMIN) ====================
