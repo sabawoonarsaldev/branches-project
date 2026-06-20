@@ -488,6 +488,20 @@ async function renderMainClientReport() {
         } else clientExps = mainClientExpenses[mainClient] || [];
     } catch (err) { clientExps = mainClientExpenses[mainClient] || []; }
 
+    try {
+        const allSalesRes = await fetch('/api/sales/all');
+        if (allSalesRes.ok) {
+            const allSalesData = await allSalesRes.json();
+            salesHistory = allSalesData.map(s => ({
+                id: s.id, date: s.date ? s.date.split('T')[0] : getTodayDate(),
+                branch: s.branch, item: s.item, qty: parseInt(s.qty),
+                price: parseFloat(s.price), purchasePrice: parseFloat(s.purchase_price),
+                revenue: parseFloat(s.revenue), cost: parseFloat(s.cost),
+                profit: parseFloat(s.profit), billNumber: s.bill_number
+            }));
+        }
+    } catch (err) { console.log('Error loading all sales:', err); }
+
     let clientItems = await getMainClientItems();
     let summary = await getMainClientPaymentSummary();
     let totalExpenses = clientExps.reduce((sum, exp) => sum + exp.amount, 0);
@@ -572,8 +586,7 @@ async function renderMainClientReport() {
                     <h4><i class="fas fa-shopping-cart"></i> Branches Sales</h4>
                     <div class="amount">${branchesSummary.totalSold}</div><div class="subtitle">Total Items Sold</div>
                     <div style="margin-top:15px;">
-                        <div class="summary-stats-row"><span class="label">Total Revenue:</span><span class="value">${formatMoney(branchesSummary.totalRevenue)}</span></div>
-                        <div class="summary-stats-row"><span class="label">Total Profit:</span><span class="value profit">${formatMoney(branchesSummary.totalProfit)}</span></div>
+                    <div class="summary-stats-row"><span class="label">Total Revenue:</span><span class="value">${formatMoney(branchesSummary.totalRevenue)}</span></div>
                     </div>
                 </div>
            
@@ -668,6 +681,19 @@ async function displayBranchReport(branch, startDate, endDate, period) {
         const res = await fetch(`/api/branch-inventory/${branch}`);
         branchInv = (await res.json()).map(b => ({ name: b.item_name, quantity: parseInt(b.quantity), sellingPrice: parseFloat(b.selling_price), purchasePrice: parseFloat(b.purchase_price) }));
     } catch (err) {}
+    try {
+        const allSalesRes = await fetch('/api/sales/all');
+        if (allSalesRes.ok) {
+            const allSalesData = await allSalesRes.json();
+            salesHistory = allSalesData.map(s => ({
+                id: s.id, date: s.date ? s.date.split('T')[0] : getTodayDate(),
+                branch: s.branch, item: s.item, qty: parseInt(s.qty),
+                price: parseFloat(s.price), purchasePrice: parseFloat(s.purchase_price),
+                revenue: parseFloat(s.revenue), cost: parseFloat(s.cost),
+                profit: parseFloat(s.profit), billNumber: s.bill_number
+            }));
+        }
+    } catch (err) { console.log('Error loading all sales:', err); }
 
     allShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
 
