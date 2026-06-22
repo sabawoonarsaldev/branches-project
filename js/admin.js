@@ -457,7 +457,33 @@ window.deleteExpense = async function (id) {
 };
 
 // ==================== ADMIN REPORTS ====================
-function renderAdminReports() {
+async function renderAdminReports() {
+    // اول همه expenses را لود کن
+    try {
+        const res = await fetch('/api/expenses/all');
+        if (res.ok) {
+            const allExp = await res.json();
+            expenses = allExp.filter(e => e.user_role === 'admin').map(e => ({
+                id: e.id, date: e.date ? e.date.split('T')[0] : getTodayDate(),
+                category: e.category, amount: parseFloat(e.amount), description: e.description
+            }));
+            for (const exp of allExp) {
+                if (exp.user_role === 'mainclient') {
+                    const mc = exp.username;
+                    if (!mainClientExpenses[mc]) mainClientExpenses[mc] = [];
+                    if (!mainClientExpenses[mc].find(e => e.id === exp.id))
+                        mainClientExpenses[mc].push({ id: exp.id, date: exp.date ? exp.date.split('T')[0] : getTodayDate(), category: exp.category, amount: parseFloat(exp.amount), description: exp.description });
+                }
+                if (exp.user_role === 'branch') {
+                    const br = exp.username;
+                    if (!branchExpenses[br]) branchExpenses[br] = [];
+                    if (!branchExpenses[br].find(e => e.id === exp.id))
+                        branchExpenses[br].push({ id: exp.id, date: exp.date ? exp.date.split('T')[0] : getTodayDate(), category: exp.category, amount: parseFloat(exp.amount), description: exp.description });
+                }
+            }
+        }
+    } catch (err) { console.log('Error loading expenses:', err); }
+
     recalcMainFinance();
     let totalPurchaseValue = calculateTotalPurchaseValue();
     let totalSaleValue = calculateTotalSaleValue();
@@ -467,15 +493,42 @@ function renderAdminReports() {
             <h2 class="page-title">Complete Reports</h2>
             <button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button>
         </div>
-        <div class="report-grid">
+        <div style="background:#f0fdf4;border-radius:16px;padding:16px;margin-bottom:20px;border:2px solid #bbf7d0;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+            <label style="color:#166534;font-weight:600;"><i class="fas fa-calendar" style="margin-right:6px;"></i>Time Period:</label>
+            <select id="adminReportTimeFilter" onchange="applyAdminReportTimeFilter()" style="padding:10px 16px;border:2px solid #bbf7d0;border-radius:12px;background:white;color:#166534;font-weight:600;">
+                <option value="all">All Time</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="custom">Custom Range</option>
+            </select>
+            <div id="adminReportCustomRange" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="date" id="adminReportStart" value="${getWeekAgoDate()}" style="padding:10px;border:2px solid #bbf7d0;border-radius:12px;">
+                <span style="color:#166534;">to</span>
+                <input type="date" id="adminReportEnd" value="${getTodayDate()}" style="padding:10px;border:2px solid #bbf7d0;border-radius:12px;">
+                <button onclick="applyAdminReportTimeFilter()" class="btn-filter" style="width:auto;margin-top:0;padding:10px 16px;">Apply</button>
+            </div>
+        </div>
+        <div class="report-grid" id="adminReportSummaryGrid">
             <div class="report-card">
                 <h3><i class="fas fa-store"></i> Admin Summary</h3>
                 <div class="report-number">${formatMoney(mainFinance.totalSale)}</div>
                 <div class="report-label">Total Sales Value</div>
                 <div style="margin-top:20px;">
-                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Purchases Cost:</span><span><strong>${formatMoney(mainFinance.totalPurchase)}</strong></span></div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Expenses:</span><span><strong>${formatMoney(mainFinance.totalExpenses)}</strong></span></div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;border-top:2px solid #e2e8f0;padding-top:8px;"><span>Total Profit:</span><span class="${mainFinance.totalProfit >= 0 ? 'profit-text' : 'loss-text'}"><strong>${formatMoney(mainFinance.totalProfit)}</strong></span></div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Purchases Cost:</span><span><strong>${formatMoney(mainFinance.totalPurchase)}</strong></span></div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                <span>Total Expenses:</span>
+                <span><strong>${formatMoney(
+                    expenses.reduce((s,e)=>s+e.amount,0) + 
+                    Object.values(mainClientExpenses).reduce((sum,arr)=>sum+arr.reduce((s,e)=>s+e.amount,0),0)
+                )}</strong></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;border-top:2px solid #e2e8f0;padding-top:8px;">
+                <span>Total Profit:</span>
+                <span class="${(mainFinance.totalSale - mainFinance.totalPurchase - expenses.reduce((s,e)=>s+e.amount,0) - Object.values(mainClientExpenses).reduce((sum,arr)=>sum+arr.reduce((s,e)=>s+e.amount,0),0)) >= 0 ? 'profit-text' : 'loss-text'}">
+                    <strong>${formatMoney(mainFinance.totalSale - mainFinance.totalPurchase - expenses.reduce((s,e)=>s+e.amount,0) - Object.values(mainClientExpenses).reduce((sum,arr)=>sum+arr.reduce((s,e)=>s+e.amount,0),0))}</strong>
+                </span>
+            </div>
                 </div>
             </div>
             <div class="report-card">
@@ -492,33 +545,25 @@ function renderAdminReports() {
                 <div class="report-number">${Object.keys(itemDiscounts).length}</div>
                 <div class="report-label">Active Discounts</div>
             </div>
-
-                    <div class="report-card">
-            <h3><i class="fas fa-file-invoice"></i> Expenses Summary</h3>
-            <div class="report-number">${formatMoney(mainFinance.totalExpenses)}</div>
-            <div class="report-label">Total All Expenses</div>
-            <div style="margin-top:20px;">
-                <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
-                    <span><i class="fas fa-user-shield" style="color:#166534;margin-right:6px;"></i>Admin Expenses:</span>
-                    <span><strong>${formatMoney(expenses.reduce((sum, exp) => sum + exp.amount, 0))}</strong></span>
-                </div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
-                    <span><i class="fas fa-user-tie" style="color:#166534;margin-right:6px;"></i>Main Client Expenses:</span>
-                    <span><strong>${formatMoney(Object.values(mainClientExpenses).reduce((sum, arr) => sum + arr.reduce((s, exp) => s + exp.amount, 0), 0))}</strong></span>
-                </div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
-                    <span><i class="fas fa-code-branch" style="color:#166534;margin-right:6px;"></i>Branches Expenses:</span>
-                    <span><strong>${formatMoney(Object.values(branchExpenses).reduce((sum, arr) => sum + arr.reduce((s, exp) => s + exp.amount, 0), 0))}</strong></span>
-                </div>
-                <div style="display:flex;justify-content:space-between;padding:12px;background:#166534;border-radius:8px;">
-                    <span style="color:white;font-weight:600;"><i class="fas fa-calculator" style="margin-right:6px;"></i>Total Expenses (excl. Branches):</span>
-                    <span style="color:white;font-weight:700;">${formatMoney(
-                        expenses.reduce((sum, exp) => sum + exp.amount, 0) +
-                        Object.values(mainClientExpenses).reduce((sum, arr) => sum + arr.reduce((s, exp) => s + exp.amount, 0), 0)
-                    )}</span>
+            <div class="report-card">
+                <h3><i class="fas fa-file-invoice"></i> Expenses Summary</h3>
+                <div class="report-number">${formatMoney(expenses.reduce((s,e)=>s+e.amount,0) + Object.values(mainClientExpenses).reduce((sum,arr)=>sum+arr.reduce((s,e)=>s+e.amount,0),0))}</div>
+                <div class="report-label">Total Expenses (Admin + Main Client)</div>
+                <div style="margin-top:20px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
+                        <span><i class="fas fa-user-shield" style="color:#166534;margin-right:6px;"></i>Admin Expenses:</span>
+                        <span><strong>${formatMoney(expenses.reduce((sum, exp) => sum + exp.amount, 0))}</strong></span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
+                        <span><i class="fas fa-user-tie" style="color:#166534;margin-right:6px;"></i>Main Client Expenses:</span>
+                        <span><strong>${formatMoney(Object.values(mainClientExpenses).reduce((sum, arr) => sum + arr.reduce((s, exp) => s + exp.amount, 0), 0))}</strong></span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
+                        <span><i class="fas fa-code-branch" style="color:#166534;margin-right:6px;"></i>Branches Expenses:</span>
+                        <span><strong>${formatMoney(Object.values(branchExpenses).reduce((sum, arr) => sum + arr.reduce((s, exp) => s + exp.amount, 0), 0))}</strong></span>
+                    </div>
                 </div>
             </div>
-        </div>
         </div>
         <div class="branch-selector" style="margin-top:30px;">
             <div class="form-group">
@@ -534,6 +579,235 @@ function renderAdminReports() {
     document.getElementById('content').innerHTML = html;
 }
 
+window.applyAdminReportTimeFilter = async function() {
+    let filter = document.getElementById('adminReportTimeFilter')?.value || 'all';
+    let customRange = document.getElementById('adminReportCustomRange');
+    if (customRange) customRange.style.display = filter === 'custom' ? 'flex' : 'none';
+
+    // لود sales اگر خالی است
+    if (salesHistory.length === 0) {
+        try {
+            const res = await fetch('/api/sales/all');
+            if (res.ok) {
+                salesHistory = (await res.json()).map(s => ({
+                    id: s.id, date: s.date ? s.date.split('T')[0] : getTodayDate(),
+                    branch: s.branch, item: s.item, qty: parseInt(s.qty),
+                    price: parseFloat(s.price), purchasePrice: parseFloat(s.purchase_price),
+                    revenue: parseFloat(s.revenue), cost: parseFloat(s.cost),
+                    profit: parseFloat(s.profit), billNumber: s.bill_number
+                }));
+            }
+        } catch (err) {}
+    }
+
+    // لود expenses اگر خالی است
+    if (expenses.length === 0) {
+        try {
+            const res = await fetch('/api/expenses/all');
+            if (res.ok) {
+                const allExp = await res.json();
+                expenses = allExp.filter(e => e.user_role === 'admin').map(e => ({
+                    id: e.id, date: e.date ? e.date.split('T')[0] : getTodayDate(),
+                    category: e.category, amount: parseFloat(e.amount), description: e.description
+                }));
+                for (const exp of allExp) {
+                    if (exp.user_role === 'mainclient') {
+                        const mc = exp.username;
+                        if (!mainClientExpenses[mc]) mainClientExpenses[mc] = [];
+                        if (!mainClientExpenses[mc].find(e => e.id === exp.id))
+                            mainClientExpenses[mc].push({ id: exp.id, date: exp.date ? exp.date.split('T')[0] : getTodayDate(), category: exp.category, amount: parseFloat(exp.amount), description: exp.description });
+                    }
+                    if (exp.user_role === 'branch') {
+                        const br = exp.username;
+                        if (!branchExpenses[br]) branchExpenses[br] = [];
+                        if (!branchExpenses[br].find(e => e.id === exp.id))
+                            branchExpenses[br].push({ id: exp.id, date: exp.date ? exp.date.split('T')[0] : getTodayDate(), category: exp.category, amount: parseFloat(exp.amount), description: exp.description });
+                    }
+                }
+            }
+        } catch (err) {}
+    }
+
+    let now = new Date();
+    let startDate = new Date(2000, 0, 1), endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+
+    if (filter === 'daily') {
+        startDate = new Date(now.toDateString());
+    } else if (filter === 'weekly') {
+        startDate = new Date(now); startDate.setDate(now.getDate() - 7);
+    } else if (filter === 'monthly') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (filter === 'custom') {
+        let s = document.getElementById('adminReportStart')?.value;
+        let e = document.getElementById('adminReportEnd')?.value;
+        if (!s || !e) return;
+        startDate = new Date(s); endDate = new Date(e);
+        endDate.setHours(23, 59, 59, 999);
+    }
+
+    _updateAdminReportByDate(startDate, endDate, filter);
+
+    let select = document.getElementById('reportClientSelect');
+    if (select && select.value) {
+        let role = select.options[select.selectedIndex]?.dataset.role;
+        if (role === 'branch') await showBranchReportInAdmin(select.value);
+        else if (role === 'mainclient') await showMainClientReportInAdmin(select.value);
+    }
+};
+
+function _getAdminReportDates() {
+    let filter = document.getElementById('adminReportTimeFilter')?.value || 'all';
+    let now = new Date();
+    let startDate = new Date(2000, 0, 1), endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+    if (filter === 'daily') {
+        startDate = new Date(now.toDateString());
+    } else if (filter === 'weekly') {
+        startDate = new Date(now); startDate.setDate(now.getDate() - 7);
+    } else if (filter === 'monthly') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (filter === 'custom') {
+        let s = document.getElementById('adminReportStart')?.value;
+        let e = document.getElementById('adminReportEnd')?.value;
+        if (s) startDate = new Date(s);
+        if (e) { endDate = new Date(e); endDate.setHours(23, 59, 59, 999); }
+    }
+    return { startDate, endDate, filter };
+}
+
+function _updateAdminReportByDate(startDate, endDate, filter) {
+    let grid = document.getElementById('adminReportSummaryGrid');
+    if (!grid) return;
+    let cards = grid.querySelectorAll('.report-card');
+    if (!cards || cards.length < 4) return;
+
+    let adminExp = expenses.reduce((s, e) => s + e.amount, 0);
+    let mcExp = Object.values(mainClientExpenses).reduce((sum, arr) => sum + arr.reduce((s, e) => s + e.amount, 0), 0);
+    let brExp = Object.values(branchExpenses).reduce((sum, arr) => sum + arr.reduce((s, e) => s + e.amount, 0), 0);
+
+    if (filter === 'all') {
+        let totalPurchaseValue = calculateTotalPurchaseValue();
+        let totalSaleValue = calculateTotalSaleValue();
+        let totalExcludingBranch = adminExp + mcExp;
+
+        cards[0].innerHTML = `
+            <h3><i class="fas fa-store"></i> Admin Summary</h3>
+            <div class="report-number">${formatMoney(mainFinance.totalSale)}</div>
+            <div class="report-label">Total Sales Value</div>
+            <div style="margin-top:20px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Purchases Cost:</span><span><strong>${formatMoney(mainFinance.totalPurchase)}</strong></span></div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Expenses:</span><span><strong>${formatMoney(totalExcludingBranch)}</strong></span></div>
+                <div style="display:flex;justify-content:space-between;border-top:2px solid #e2e8f0;padding-top:8px;"><span>Total Profit:</span><span class="${(mainFinance.totalSale - mainFinance.totalPurchase - totalExcludingBranch) >= 0 ? 'profit-text' : 'loss-text'}"><strong>${formatMoney(mainFinance.totalSale - mainFinance.totalPurchase - totalExcludingBranch)}</strong></span></div>
+            </div>`;
+
+        cards[1].innerHTML = `
+            <h3><i class="fas fa-boxes"></i> Inventory Status</h3>
+            <div class="report-number">${mainInventory.length}</div>
+            <div class="report-label">Unique Items</div>
+            <div style="margin-top:20px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Purchase Value:</span><span><strong>${formatMoney(totalPurchaseValue)}</strong></span></div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Sale Value:</span><span><strong>${formatMoney(totalSaleValue)}</strong></span></div>
+            </div>`;
+
+        cards[2].innerHTML = `
+            <h3><i class="fas fa-percent"></i> Discounts</h3>
+            <div class="report-number">${Object.keys(itemDiscounts).length}</div>
+            <div class="report-label">Active Discounts</div>`;
+
+        cards[3].innerHTML = `
+            <h3><i class="fas fa-file-invoice"></i> Expenses Summary</h3>
+            <div class="report-number">${formatMoney(totalExcludingBranch)}</div>
+            <div class="report-label">Total Expenses (All Time)</div>
+            <div style="margin-top:20px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
+                    <span><i class="fas fa-user-shield" style="color:#166534;margin-right:6px;"></i>Admin Expenses:</span>
+                    <span><strong>${formatMoney(adminExp)}</strong></span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
+                    <span><i class="fas fa-user-tie" style="color:#166534;margin-right:6px;"></i>Main Client Expenses:</span>
+                    <span><strong>${formatMoney(mcExp)}</strong></span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:10px;background:#f0fdf4;border-radius:8px;">
+                    <span><i class="fas fa-code-branch" style="color:#166534;margin-right:6px;"></i>Branches Expenses (Info Only):</span>
+                    <span><strong>${formatMoney(brExp)}</strong></span>
+                </div>
+            </div>`;
+        return;
+    }
+
+    // فیلتر برای تایم های دیگر
+    let filteredSales = salesHistory.filter(s => { let d = new Date(s.date); return d >= startDate && d <= endDate; });
+    let filteredAdminExp = expenses.filter(e => { let d = new Date(e.date); return d >= startDate && d <= endDate; });
+    let filteredMcExp = Object.values(mainClientExpenses).reduce((sum, arr) => sum + arr.filter(e => {
+        let d = new Date(e.date); return d >= startDate && d <= endDate;
+    }).reduce((s, e) => s + e.amount, 0), 0);
+    let filteredBrExp = Object.values(branchExpenses).reduce((sum, arr) => sum + arr.filter(e => {
+        let d = new Date(e.date); return d >= startDate && d <= endDate;
+    }).reduce((s, e) => s + e.amount, 0), 0);
+    let filteredShipments = mainClientToBranchShipments.filter(s => { let d = new Date(s.date); return d >= startDate && d <= endDate; });
+
+    let totalSale = filteredSales.reduce((sum, s) => sum + (s.revenue || 0), 0);
+    let totalAdminExpense = filteredAdminExp.reduce((sum, e) => sum + (e.amount || 0), 0);
+    let totalExcludingBranch = totalAdminExpense + filteredMcExp;
+    let totalPurchase = filteredShipments.reduce((sum, s) => sum + ((s.purchasePrice || 0) * (s.qty || 0)), 0);
+
+    let filteredPaid = filteredShipments.reduce((sum, s) => {
+        let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? shipmentPayments[s.uniqueKey] : 0;
+        return sum + Math.min(paid, (s.sellingPrice || 0) * (s.qty || 0));
+    }, 0);
+    let filteredUnpaid = filteredShipments.reduce((sum, s) => {
+        let total = (s.sellingPrice || 0) * (s.qty || 0);
+        let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? shipmentPayments[s.uniqueKey] : 0;
+        return sum + Math.max(0, total - paid);
+    }, 0);
+
+    cards[0].innerHTML = `
+        <h3><i class="fas fa-store"></i> Admin Summary</h3>
+        <div class="report-number">${formatMoney(totalSale)}</div>
+        <div class="report-label">Total Sales (${filter})</div>
+        <div style="margin-top:20px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Purchases:</span><span><strong>${formatMoney(totalPurchase)}</strong></span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Expenses:</span><span><strong>${formatMoney(totalExcludingBranch)}</strong></span></div>
+            <div style="display:flex;justify-content:space-between;border-top:2px solid #e2e8f0;padding-top:8px;"><span>Net Profit:</span><span class="${(totalSale - totalPurchase - totalExcludingBranch) >= 0 ? 'profit-text' : 'loss-text'}"><strong>${formatMoney(totalSale - totalPurchase - totalExcludingBranch)}</strong></span></div>
+        </div>`;
+
+    cards[1].innerHTML = `
+        <h3><i class="fas fa-boxes"></i> Inventory Status</h3>
+        <div class="report-number">${mainInventory.length}</div>
+        <div class="report-label">Unique Items</div>
+        <div style="margin-top:20px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Shipments Value:</span><span><strong>${formatMoney(filteredShipments.reduce((s, sh) => s + ((sh.sellingPrice||0)*(sh.qty||0)), 0))}</strong></span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Paid:</span><span class="profit-text"><strong>${formatMoney(filteredPaid)}</strong></span></div>
+            <div style="display:flex;justify-content:space-between;"><span>Total Unpaid:</span><span class="loss-text"><strong>${formatMoney(filteredUnpaid)}</strong></span></div>
+        </div>`;
+
+    cards[2].innerHTML = `
+        <h3><i class="fas fa-percent"></i> Discounts</h3>
+        <div class="report-number">${Object.keys(itemDiscounts).length}</div>
+        <div class="report-label">Active Discounts</div>`;
+
+    cards[3].innerHTML = `
+        <h3><i class="fas fa-file-invoice"></i> Expenses Summary</h3>
+        <div class="report-number">${formatMoney(totalExcludingBranch)}</div>
+        <div class="report-label">Total Expenses (${filter})</div>
+        <div style="margin-top:20px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
+                <span><i class="fas fa-user-shield" style="color:#166534;margin-right:6px;"></i>Admin Expenses:</span>
+                <span><strong>${formatMoney(totalAdminExpense)}</strong></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:12px;padding:10px;background:#f0fdf4;border-radius:8px;">
+                <span><i class="fas fa-user-tie" style="color:#166534;margin-right:6px;"></i>Main Client Expenses:</span>
+                <span><strong>${formatMoney(filteredMcExp)}</strong></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px;background:#f0fdf4;border-radius:8px;">
+                <span><i class="fas fa-code-branch" style="color:#166534;margin-right:6px;"></i>Branches Expenses (Info Only):</span>
+                <span><strong>${formatMoney(filteredBrExp)}</strong></span>
+            </div>
+        </div>`;
+}
+
+
 window.showClientReport = async function () {
     let clientSelect = document.getElementById('reportClientSelect');
     if (!clientSelect || !clientSelect.value) { alert('Please select a client'); return; }
@@ -544,59 +818,157 @@ window.showClientReport = async function () {
 };
 
 async function showMainClientReportInAdmin(client) {
+    let { startDate, endDate, filter } = _getAdminReportDates();
+
     await refreshDataFromServer();
     let originalUser = currentUser;
     currentUser = { username: client, role: 'mainclient' };
     let clientItems = await getMainClientItems();
     currentUser = originalUser;
 
+    // فیلتر بر اساس تاریخ
+    let filteredItems = filter === 'all' ? clientItems : clientItems.filter(item => {
+        let d = new Date(item.date || 0);
+        return d >= startDate && d <= endDate;
+    });
+
     let paidItemsCount = 0, unpaidItemsCount = 0, totalPaidValue = 0, totalUnpaidValue = 0;
-    for (const item of clientItems) {
-        const itemTotalValue = item.sellingPrice * item.remainingQuantity;
+    for (const item of filteredItems) {
+        const itemTotalValue = (item.sellingPrice || 0) * (item.remainingQuantity || 0);
         if (item.paid === true) { paidItemsCount++; totalPaidValue += itemTotalValue; }
         else { unpaidItemsCount++; totalUnpaidValue += itemTotalValue; }
     }
+
     let clientExps = mainClientExpenses[client] || [];
-    let totalExpenses = clientExps.reduce((sum, exp) => sum + exp.amount, 0);
-    let returnSummary = getReturnSummary();
+    let filteredExps = filter === 'all' ? clientExps : clientExps.filter(e => {
+        let d = new Date(e.date);
+        return d >= startDate && d <= endDate;
+    });
+    let totalExpenses = filteredExps.reduce((sum, exp) => sum + exp.amount, 0);
+
+    // ریترن‌های فیلتر شده
+    let clientReturns = branchReturns.filter(r => {
+        if (filter === 'all') return true;
+        let d = new Date(r.date);
+        return d >= startDate && d <= endDate;
+    });
+    let totalReturns = clientReturns.length;
+    let pendingReturns = clientReturns.filter(r => r.status === 'pending').length;
+    let totalReturnValue = clientReturns.reduce((sum, r) => sum + ((r.quantity || 0) * (r.pricePerUnit || 0)), 0);
+
+    // shipments فیلتر شده برای پرداخت
+    let clientShipments = mainClientToBranchShipments.filter(s => {
+        if (filter === 'all') return true;
+        let d = new Date(s.date);
+        return d >= startDate && d <= endDate;
+    });
+    let totalShipmentValue = clientShipments.reduce((sum, s) => sum + ((s.sellingPrice||0)*(s.qty||0)), 0);
+    let totalShipmentPaid = clientShipments.reduce((sum, s) => {
+        let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? shipmentPayments[s.uniqueKey] : 0;
+        return sum + Math.min(paid, (s.sellingPrice||0)*(s.qty||0));
+    }, 0);
 
     document.getElementById('clientReportContainer').style.display = 'block';
     document.getElementById('clientReportContainer').innerHTML = `
-        <h3 style="margin-bottom:20px;">Client Report: ${client} (Main Client)</h3>
+        <h3 style="margin-bottom:20px;">Client Report: ${client} (Main Client) ${filter !== 'all' ? `<small style="color:#64748b;font-size:14px;">(${filter})</small>` : ''}</h3>
         <div class="report-grid">
-            <div class="report-card"><h3><i class="fas fa-user-tie"></i> ${client}</h3><div class="report-number">${clientItems.length}</div><div class="report-label">Total Items Received</div>
+            <div class="report-card"><h3><i class="fas fa-user-tie"></i> ${client}</h3>
+                <div class="report-number">${filteredItems.length}</div>
+                <div class="report-label">Total Items</div>
                 <div style="margin-top:15px;">
                     <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Paid Items:</span><span class="profit-text"><strong>${paidItemsCount}</strong></span></div>
                     <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Unpaid Items:</span><span class="loss-text"><strong>${unpaidItemsCount}</strong></span></div>
                 </div>
             </div>
-            <div class="report-card"><h3><i class="fas fa-credit-card"></i> Payment Status</h3><div class="report-number">${formatMoney(totalPaidValue)}</div><div class="report-label">Total Paid</div>
+            <div class="report-card"><h3><i class="fas fa-credit-card"></i> Payment Status</h3>
+                <div class="report-number">${formatMoney(totalPaidValue)}</div>
+                <div class="report-label">Total Paid</div>
                 <div style="margin-top:15px;">
                     <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Unpaid:</span><span class="loss-text"><strong>${formatMoney(totalUnpaidValue)}</strong></span></div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Shipments Paid:</span><span class="profit-text"><strong>${formatMoney(totalShipmentPaid)}</strong></span></div>
+                    <div style="display:flex;justify-content:space-between;"><span>Shipments Value:</span><span><strong>${formatMoney(totalShipmentValue)}</strong></span></div>
                 </div>
             </div>
-            <div class="report-card"><h3><i class="fas fa-file-invoice"></i> Expenses</h3><div class="report-number">${formatMoney(totalExpenses)}</div><div class="report-label">Total Expenses</div></div>
-            <div class="report-card"><h3><i class="fas fa-undo-alt"></i> Returns</h3><div class="report-number">${returnSummary.totalReturns}</div><div class="report-label">Total Returns</div>
+            <div class="report-card"><h3><i class="fas fa-file-invoice"></i> Expenses</h3>
+                <div class="report-number">${formatMoney(totalExpenses)}</div>
+                <div class="report-label">Total Expenses</div>
+            </div>
+            <div class="report-card"><h3><i class="fas fa-undo-alt"></i> Returns</h3>
+                <div class="report-number">${totalReturns}</div>
+                <div class="report-label">Total Returns</div>
                 <div style="margin-top:15px;">
-                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Pending:</span><span style="color:#f59e0b;"><strong>${returnSummary.pendingReturns}</strong></span></div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Return Value:</span><span><strong>${formatMoney(returnSummary.totalValue)}</strong></span></div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Pending:</span><span style="color:#f59e0b;"><strong>${pendingReturns}</strong></span></div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Return Value:</span><span><strong>${formatMoney(totalReturnValue)}</strong></span></div>
                 </div>
             </div>
         </div>`;
 }
 
 async function showBranchReportInAdmin(branch) {
-    let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
+    try {
+        const allSalesRes = await fetch('/api/sales/all');
+        if (allSalesRes.ok) {
+            const allSalesData = await allSalesRes.json();
+            salesHistory = allSalesData.map(s => ({
+                id: s.id, date: s.date ? s.date.split('T')[0] : getTodayDate(),
+                branch: s.branch, item: s.item, qty: parseInt(s.qty),
+                price: parseFloat(s.price), purchasePrice: parseFloat(s.purchase_price),
+                revenue: parseFloat(s.revenue), cost: parseFloat(s.cost),
+                profit: parseFloat(s.profit), billNumber: s.bill_number,
+                customer_name: s.customer_name || ''
+            }));
+        }
+    } catch (err) { console.log('Error loading sales:', err); }
+
+    try {
+        const returnsRes = await fetch('/api/returns/mainclient/admin');
+        if (returnsRes.ok) {
+            const returnsData = await returnsRes.json();
+            branchReturns = returnsData.map(r => ({
+                id: r.id, date: r.date ? r.date.split('T')[0] : getTodayDate(),
+                branch: r.branch, itemName: r.item_name,
+                quantity: parseInt(r.quantity), pricePerUnit: parseFloat(r.price_per_unit),
+                description: r.description, status: r.status
+            }));
+        }
+    } catch (err) { console.log('Error loading returns:', err); }
+    let { startDate, endDate, filter } = _getAdminReportDates();
+
+    let branchShipments = mainClientToBranchShipments.filter(s => {
+        if (filter === 'all') return s.branch === branch;
+        let d = new Date(s.date);
+        return s.branch === branch && d >= startDate && d <= endDate;
+    });
+
     let totalReceivedValue = branchShipments.reduce((sum, s) => sum + ((s.sellingPrice || 0) * (s.qty || 0)), 0);
-    let inventory = branchInventory[branch] || [];
-    let fin = branchFinance[branch] || { totalSale: 0, totalPurchase: 0, totalProfit: 0, totalExpenses: 0 };
-    let branchExps = branchExpenses[branch] || [];
-    let totalExpenses = branchExps.reduce((sum, exp) => sum + (exp.amount || 0), 0);
-    let paymentSummary = getBranchPaymentSummary(branch);
+    let filteredBranchShipments = branchShipments; 
+    let filteredTotalValue = filteredBranchShipments.reduce((sum, s) => sum + ((s.sellingPrice||0)*(s.qty||0)), 0);
+    let filteredTotalPaid = filteredBranchShipments.reduce((sum, s) => {
+        let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? shipmentPayments[s.uniqueKey] : 0;
+        return sum + Math.min(paid, (s.sellingPrice||0)*(s.qty||0));
+    }, 0);
+    let filteredTotalUnpaid = Math.max(0, filteredTotalValue - filteredTotalPaid);
+    let paymentSummary = { totalPaid: filteredTotalPaid, totalUnpaid: filteredTotalUnpaid };
     let salesSummary = getBranchSalesSummary(branch);
 
+    let filteredSales = salesHistory.filter(s => {
+        if (filter === 'all') return s.branch === branch;
+        let d = new Date(s.date);
+        return s.branch === branch && d >= startDate && d <= endDate;
+    });
+
+    let allReturns = branchReturns.filter(r => {
+        if (r.branch !== branch) return false;
+        if (filter === 'all') return true;
+        let d = new Date(r.date);
+        return d >= startDate && d <= endDate;
+    });
+    let approvedReturns = allReturns.filter(r => r.status === 'approved' || r.status === 'paid');
+    let totalReturnItems = allReturns.reduce((sum, r) => sum + (r.quantity || 0), 0);
+    let approvedReturnValue = approvedReturns.reduce((sum, r) => sum + ((r.quantity || 0) * (r.pricePerUnit || 0)), 0);
+
     let html = `
-        <h3 style="margin-bottom:20px;">Branch Report: ${branch}</h3>
+        <h3 style="margin-bottom:20px;">Branch Report: ${branch} ${filter !== 'all' ? `<small style="color:#64748b;font-size:14px;">(${filter})</small>` : ''}</h3>
         <div class="report-grid">
             <div class="report-card"><h3><i class="fas fa-truck"></i> Received</h3><div class="report-number">${branchShipments.reduce((s, sh) => s + sh.qty, 0)}</div><div class="report-label">Items Received</div>
                 <div style="margin-top:15px;"><div style="display:flex;justify-content:space-between;"><span>Value:</span><span><strong>${formatMoney(totalReceivedValue)}</strong></span></div></div>
@@ -604,47 +976,66 @@ async function showBranchReportInAdmin(branch) {
             <div class="report-card"><h3><i class="fas fa-credit-card"></i> Payments</h3><div class="report-number">${formatMoney(paymentSummary.totalPaid)}</div><div class="report-label">Total Paid</div>
                 <div style="margin-top:15px;"><div style="display:flex;justify-content:space-between;"><span>Unpaid:</span><span class="loss-text"><strong>${formatMoney(paymentSummary.totalUnpaid)}</strong></span></div></div>
             </div>
-            <div class="report-card"><h3><i class="fas fa-shopping-cart"></i> Sales</h3><div class="report-number">${salesSummary.totalItemsSold}</div><div class="report-label">Items Sold</div>
+            <div class="report-card"><h3><i class="fas fa-shopping-cart"></i> Sales</h3><div class="report-number">${filteredSales.reduce((s, sale) => s + sale.qty, 0)}</div><div class="report-label">Items Sold</div>
                 <div style="margin-top:15px;">
-                    <div style="display:flex;justify-content:space-between;"><span>Revenue:</span><span><strong>${formatMoney(salesSummary.totalRevenue)}</strong></span></div>
-                    <div style="display:flex;justify-content:space-between;"><span>Profit:</span><span class="profit-text"><strong>${formatMoney(salesSummary.totalProfit)}</strong></span></div>
+                    <div style="display:flex;justify-content:space-between;"><span>Revenue:</span><span><strong>${formatMoney(filteredSales.reduce((s, sale) => s + sale.revenue, 0))}</strong></span></div>
                 </div>
             </div>
-        </div>`;
+            <div class="report-card"><h3><i class="fas fa-undo-alt"></i> Returns</h3><div class="report-number">${totalReturnItems}</div><div class="report-label">Total Items Returned</div>
+                <div style="margin-top:15px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Approved Value:</span><span class="profit-text"><strong>${formatMoney(approvedReturnValue)}</strong></span></div>
+                    <div style="display:flex;justify-content:space-between;"><span>Pending:</span><span style="color:#f59e0b;"><strong>${allReturns.filter(r => r.status === 'pending').length}</strong></span></div>
+                </div>
+            </div>
+        </div>
 
-    let branchSalesData = [];
-    try {
-        const salesRes = await fetch(`/api/sales/${branch}`);
-        if (salesRes.ok) {
-            branchSalesData = (await salesRes.json()).map(s => ({
-                date: s.date ? s.date.split('T')[0] : '-',
-                item: s.item, qty: parseInt(s.qty),
-                price: parseFloat(s.price), revenue: parseFloat(s.revenue),
-                customer_name: s.customer_name || '-'
-            }));
+        <h3 style="margin:30px 0 15px;"><i class="fas fa-undo-alt"></i> Return Details</h3>
+        ${allReturns.length === 0
+            ? `<div class="empty-state" style="padding:20px;"><i class="fas fa-undo-alt"></i><h3>No Returns</h3></div>`
+            : `<div class="table-wrapper"><table class="inventory-table">
+                <thead><tr><th>Date</th><th>Item Name</th><th>Stock</th><th>Description</th><th>Total Value</th><th>Status</th></tr></thead>
+                <tbody>${allReturns.sort((a, b) => new Date(b.date) - new Date(a.date)).map(r => {
+                    let totalVal = (r.quantity || 0) * (r.pricePerUnit || 0);
+                    let isApproved = r.status === 'approved' || r.status === 'paid';
+                    let statusClass = r.status === 'paid' ? 'badge-paid' : (r.status === 'approved' ? 'badge-active' : (r.status === 'rejected' ? 'badge-blocked' : 'badge-frozen'));
+                    return `<tr>
+                        <td>${r.date}</td>
+                        <td>${r.itemName}</td>
+                        <td>${r.quantity}</td>
+                        <td>${r.description || '-'}</td>
+                        <td class="${isApproved ? 'profit-text' : ''}">${formatMoney(totalVal)}</td>
+                        <td><span class="badge ${statusClass}">${(r.status || 'pending').toUpperCase()}</span></td>
+                    </tr>`;
+                }).join('')}</tbody>
+                <tfoot><tr class="grand-total">
+                    <td colspan="4"><strong>Grand Total (Approved)</strong></td>
+                    <td><strong class="profit-text">${formatMoney(approvedReturnValue)}</strong></td>
+                    <td></td>
+                </tr></tfoot>
+            </table></div>`
         }
-    } catch(err) {}
 
-    let totalSaleRevenue = branchSalesData.reduce((sum, s) => sum + s.revenue, 0);
+        <h3 style="margin:30px 0 15px;"><i class="fas fa-shopping-cart"></i> Branch Sales</h3>`;
 
-    html += `<h3 style="margin:30px 0 20px;">Branch Sales</h3>`;
-    if (branchSalesData.length === 0) {
-        html += `<div class="empty-state"><i class="fas fa-shopping-cart"></i><h3>No Sales Yet</h3></div>`;
+    if (filteredSales.length === 0) {
+        html += `<div class="empty-state"><i class="fas fa-shopping-cart"></i><h3>No Sales</h3></div>`;
     } else {
+        let totalSaleRevenue = filteredSales.reduce((sum, s) => sum + s.revenue, 0);
         html += `
             <div class="table-wrapper"><table class="inventory-table">
                 <thead><tr><th>Item Name</th><th>Qty Sold</th><th>Sale Date</th><th>Price/Unit</th><th>Total Price</th><th>Customer Name</th></tr></thead>
-                <tbody>${branchSalesData.sort((a,b) => new Date(b.date) - new Date(a.date)).map(s => `
+                <tbody>${filteredSales.sort((a, b) => new Date(b.date) - new Date(a.date)).map(s => `
                     <tr>
                         <td>${s.item}</td><td>${s.qty}</td><td>${s.date}</td>
                         <td>${formatMoney(s.price)}</td>
                         <td class="total-value">${formatMoney(s.revenue)}</td>
-                        <td>${s.customer_name}</td>
+                        <td>${s.customer_name || s.customerName || '-'}</td>
                     </tr>`).join('')}
                 </tbody>
                 <tfoot><tr class="grand-total">
-                    <td colspan="5"><strong>Total Sale Price</strong></td>
+                    <td colspan="4"><strong>Total Sale Price</strong></td>
                     <td><strong>${formatMoney(totalSaleRevenue)}</strong></td>
+                    <td></td>
                 </tr></tfoot>
             </table></div>`;
     }
@@ -652,6 +1043,7 @@ async function showBranchReportInAdmin(branch) {
     document.getElementById('clientReportContainer').style.display = 'block';
     document.getElementById('clientReportContainer').innerHTML = html;
 }
+
 
 // ==================== TOTAL AMOUNT (ADMIN) ====================
 function renderTotalAmount() {

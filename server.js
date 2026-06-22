@@ -45,7 +45,7 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// // // Local development
+// // Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
