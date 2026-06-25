@@ -336,92 +336,80 @@ window.filterMainClientReturns = function () {
     }
 };
 
+
 window.approveReturn = async function (returnId) {
-    let returnRequest = branchReturns.find(r => r.id === returnId);
-    if (!returnRequest) { alert('Return request not found!'); return; }
-    if (!confirm(`Approve return of ${returnRequest.quantity} ${returnRequest.itemName} from ${returnRequest.branch}?`)) return;
+    if (!confirm('Are you sure you want to approve this return?')) return;
+    
+    let returnItem = branchReturns.find(r => r.id === returnId);
+    if (!returnItem) { alert('Return not found!'); return; }
+    
+    let isPaid = returnItem.isPaid || returnItem.is_paid;
+    // بررسی از shipment payments
+    if (isPaid === undefined) {
+        let relatedShipment = mainClientToBranchShipments.find(s => 
+            s.branch === returnItem.branch && s.item === returnItem.itemName
+        );
+        if (relatedShipment) {
+            let paid = shipmentPayments[relatedShipment.uniqueKey] || 0;
+            let total = (relatedShipment.sellingPrice || 0) * (relatedShipment.qty || 0);
+            isPaid = paid >= total * 0.99;
+        }
+    }
 
     try {
-        const approveResponse = await fetch(`/api/returns/${returnId}/approve`, { method: 'PUT', headers: { 'Content-Type': 'application/json' } });
-        if (!approveResponse.ok) throw new Error(`Server returned ${approveResponse.status}`);
+        const response = await fetch(`/api/returns/${returnId}/approve-full`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_paid: isPaid })
+        });
+        if (!response.ok) throw new Error('Failed to approve return');
 
-        let { branch, itemName, quantity, pricePerUnit } = returnRequest;
-        let returnValue = quantity * pricePerUnit;
+        // آپدیت local data
+        if (returnItem) {
+            returnItem.status = 'approved';
+            let returnValue = (returnItem.quantity || 0) * (returnItem.pricePerUnit || 0);
 
-        // Update branch inventory
-        const branchInvRes = await fetch(`/api/branch-inventory/${branch}`);
-        const branchItems = await branchInvRes.json();
-        let remainingToRemove = quantity;
-        for (let item of branchItems) {
-            if (remainingToRemove <= 0) break;
-            if (item.item_name === itemName) {
-                let removeFromThis = Math.min(item.quantity, remainingToRemove);
-                let newQuantity = item.quantity - removeFromThis;
-                await fetch(`/api/branch-inventory/${item.id}`, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ quantity: newQuantity, original_quantity: Math.max(0, (item.original_quantity || item.quantity) - removeFromThis) })
-                });
-                if (branchInventory[branch]) {
-                    let localItem = branchInventory[branch].find(i => i.id === item.id);
-                    if (localItem) localItem.quantity = newQuantity;
+            // آپدیت shipments local
+            let relatedShipment = mainClientToBranchShipments.find(s => 
+                s.branch === returnItem.branch && s.item === returnItem.itemName
+            );
+            if (relatedShipment) {
+                relatedShipment.qty = Math.max(0, relatedShipment.qty - returnItem.quantity);
+                if (isPaid && relatedShipment.uniqueKey && shipmentPayments[relatedShipment.uniqueKey] !== undefined) {
+                    shipmentPayments[relatedShipment.uniqueKey] = Math.max(0, 
+                        shipmentPayments[relatedShipment.uniqueKey] - returnValue
+                    );
                 }
-                remainingToRemove -= removeFromThis;
-            }
-        }
-        if (branchInventory[branch]) branchInventory[branch] = branchInventory[branch].filter(i => i.quantity > 0);
-
-        // Update shipments and payments
-        let remainingQty = quantity;
-        for (let shipment of mainClientToBranchShipments.filter(s => s.branch === branch && s.item === itemName).sort((a, b) => new Date(b.date) - new Date(a.date))) {
-            if (remainingQty <= 0) break;
-            let qtyToSubtract = Math.min(shipment.qty, remainingQty);
-            let newQty = shipment.qty - qtyToSubtract;
-            let oldPaidAmount = (shipment.uniqueKey && shipmentPayments[shipment.uniqueKey] !== undefined) ? shipmentPayments[shipment.uniqueKey] : getShipmentPaidAmount(shipment);
-            let returnedValue = shipment.sellingPrice * qtyToSubtract;
-            let newPaidAmount = Math.max(0, Math.min(oldPaidAmount - returnedValue, shipment.sellingPrice * newQty));
-            newPaidAmount = Math.round(newPaidAmount * 100) / 100;
-
-            if (newQty <= 0) {
-                mainClientToBranchShipments.splice(mainClientToBranchShipments.findIndex(s => s.id === shipment.id), 1);
-                await fetch(`/api/shipments/${shipment.id}`, { method: 'DELETE' }).catch(() => {});
-                if (shipment.uniqueKey) {
-                    delete shipmentPayments[shipment.uniqueKey];
-                    await fetch(`/api/shipment-payment/${shipment.uniqueKey}`, { method: 'DELETE' }).catch(() => {});
-                }
-            } else {
-                shipment.qty = newQty;
-                await fetch(`/api/shipments/${shipment.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: shipment.date, branch: shipment.branch, item: shipment.item, qty: newQty, selling_price: shipment.sellingPrice, purchase_price: shipment.purchasePrice, unique_key: shipment.uniqueKey }) }).catch(() => {});
-                if (shipment.uniqueKey) {
-                    await fetch(`/api/shipment-payment/${shipment.uniqueKey}`, { method: 'DELETE' }).catch(() => {});
-                    await fetch('/api/shipment-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shipment_id: shipment.uniqueKey, paid_amount: newPaidAmount }) }).catch(() => {});
-                    shipmentPayments[shipment.uniqueKey] = newPaidAmount;
+                if (relatedShipment.qty <= 0) {
+                    mainClientToBranchShipments = mainClientToBranchShipments.filter(s => s !== relatedShipment);
+                    if (relatedShipment.uniqueKey) delete shipmentPayments[relatedShipment.uniqueKey];
                 }
             }
-            remainingQty -= qtyToSubtract;
+
+            if (mainClientDistributed[returnItem.itemName]) {
+                mainClientDistributed[returnItem.itemName] = Math.max(0,
+                    mainClientDistributed[returnItem.itemName] - returnItem.quantity
+                );
+            }
+
+
+            if (branchInventory[returnItem.branch]) {
+                let remaining = returnItem.quantity;
+                for (let item of branchInventory[returnItem.branch]) {
+                    if (item.name === returnItem.itemName && remaining > 0) {
+                        let take = Math.min(item.quantity, remaining);
+                        item.quantity -= take;
+                        remaining -= take;
+                    }
+                }
+                branchInventory[returnItem.branch] = branchInventory[returnItem.branch].filter(i => i.quantity > 0);
+            }
         }
 
-        // Update main client distributed
-        let mainClientItem = mainClientItems.find(i => i.name === itemName);
-        if (mainClientItem) {
-            let currentDistributed = mainClientDistributed[itemName] || 0;
-            mainClientDistributed[itemName] = Math.max(0, currentDistributed - quantity);
-            await fetch('/api/main-client-distributed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ main_client: currentUser.username, item_name: itemName, distributed_quantity: -quantity }) });
-        } else {
-            const newItemRes = await fetch('/api/inventory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: itemName, purchase_price: pricePerUnit, selling_price: pricePerUnit, quantity, supplier: `Returned from ${branch}`, date: getTodayDate() }) });
-            const newItem = await newItemRes.json();
-            mainInventory.push({ id: newItem.id, name: itemName, purchasePrice: pricePerUnit, sellingPrice: pricePerUnit, quantity, supplier: `Returned from ${branch}`, date: getTodayDate() });
-            mainClientItems.push({ id: newItem.id, name: itemName, sellingPrice: pricePerUnit, purchasePrice: pricePerUnit, quantity, date: getTodayDate(), supplier: `Returned from ${branch}` });
-        }
-
-        returnRequest.status = 'approved';
-        window._previousTotalUnpaid = null; window._previousGrandTotal = null;
-        window._adminPreviousTotalUnpaid = null; window._adminPreviousGrandTotal = null;
-
-        saveData(); recalcMainFinance(); recalcBranchFinance(branch);
+        saveData();
         await refreshDataFromServer();
-        alert(`✅ Return Approved!\n${quantity} ${itemName}(s) returned from ${branch}.`);
         renderMainClientReturns();
-    } catch (error) { alert('Failed to approve return: ' + error.message); }
+        alert(`✅ Return approved! ${isPaid ? 'Paid item returned and credited.' : 'Unpaid item returned - debt removed.'}`);
+    } catch (err) { alert('Failed to approve return: ' + err.message); }
 };
 
 window.rejectReturn = async function (returnId) {

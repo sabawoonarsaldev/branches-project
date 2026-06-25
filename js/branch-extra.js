@@ -203,12 +203,10 @@ async function renderBranchReturns() {
                         <td class="total-value">${formatMoney(totalValue)}</td>
                         <td>${paymentBadge}</td>
                         <td>
-                            ${item.quantity > 0 && isPaid
-                                ? `<button class="btn btn-return" onclick="showReturnModal('${item.name}',${item.quantity},${item.sellingPrice})"><i class="fas fa-undo-alt"></i> Return (Available: ${item.quantity})</button>`
-                                : !isPaid
-                                    ? `<span class="badge badge-unpaid">Payment Required</span>`
-                                    : `<span class="badge badge-unpaid">Out of Stock</span>`
-                            }
+                        ${item.quantity > 0
+                            ? `<button class="btn btn-return" onclick="showReturnModal('${item.name}',${item.quantity},${item.sellingPrice},${isPaid})"><i class="fas fa-undo-alt"></i> Return (Available: ${item.quantity})</button>`
+                            : `<span class="badge badge-unpaid">Out of Stock</span>`
+                        }                  
                             ${totalReturnedQty > 0 ? `<br><small style="color:#f59e0b;">Returned: ${totalReturnedQty}</small>` : ''}
                         </td>
                     </tr>`;
@@ -239,10 +237,15 @@ async function renderBranchReturns() {
     document.getElementById('content').innerHTML = html;
 }
 
-window.showReturnModal = function (itemName, maxQuantity, pricePerUnit) {
+window.showReturnModal = function (itemName, maxQuantity, pricePerUnit, isPaid) {
     if (maxQuantity <= 0) { alert('No stock available to return!'); return; }
+    let paymentNote = isPaid 
+        ? '<div style="background:#f0fdf4;padding:10px;border-radius:8px;margin-bottom:10px;color:#166534;"><i class="fas fa-check-circle"></i> This item is <strong>PAID</strong> - return will credit your account</div>'
+        : '<div style="background:#fef3c7;padding:10px;border-radius:8px;margin-bottom:10px;color:#92400e;"><i class="fas fa-exclamation-triangle"></i> This item is <strong>UNPAID</strong> - return will remove shipment debt</div>';
+    
     document.getElementById('modalContent').innerHTML = `
         <div class="modal-header"><h3>Return Item: ${itemName}</h3><button onclick="closeModal()">&times;</button></div>
+        ${paymentNote}
         <div class="form-group"><label>Available Stock: ${maxQuantity}</label></div>
         <div class="form-group"><label>Quantity to Return</label>
             <input type="number" id="returnQuantity" min="1" max="${maxQuantity}" value="1">
@@ -254,6 +257,7 @@ window.showReturnModal = function (itemName, maxQuantity, pricePerUnit) {
         <div class="form-group"><label>Total Return Value</label>
             <input type="text" id="returnTotal" value="${formatMoney(pricePerUnit)}" readonly style="background:#f1f5f9;">
         </div>
+        <input type="hidden" id="returnIsPaid" value="${isPaid ? '1' : '0'}">
         <button class="save-btn" onclick="submitReturn('${itemName}',${pricePerUnit})"><i class="fas fa-check"></i> Submit Return Request</button>`;
     document.getElementById('modal').classList.add('active');
 
@@ -264,9 +268,11 @@ window.showReturnModal = function (itemName, maxQuantity, pricePerUnit) {
     });
 };
 
+
 window.submitReturn = async function (itemName, pricePerUnit) {
     let quantity = parseInt(document.getElementById('returnQuantity').value);
     let description = document.getElementById('returnDescription').value;
+    let isPaid = document.getElementById('returnIsPaid').value === '1';
     let branch = currentUser.username;
     if (!quantity || quantity < 1) { alert('Please enter a valid quantity'); return; }
 
@@ -277,17 +283,22 @@ window.submitReturn = async function (itemName, pricePerUnit) {
     try {
         const response = await fetch('/api/returns', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: getTodayDate(), branch, item_name: itemName, quantity, price_per_unit: pricePerUnit, description, status: 'pending' })
+            body: JSON.stringify({ 
+                date: getTodayDate(), branch, item_name: itemName, 
+                quantity, price_per_unit: pricePerUnit, description, 
+                status: 'pending', is_paid: isPaid 
+            })
         });
         if (response.ok) {
             const newReturn = await response.json();
-            branchReturns.push({ id: newReturn.id, date: getTodayDate(), branch, itemName, quantity, pricePerUnit, description, status: 'pending' });
+            branchReturns.push({ id: newReturn.id, date: getTodayDate(), branch, itemName, quantity, pricePerUnit, description, status: 'pending', isPaid });
             closeModal();
             renderBranchReturns();
-            alert(`✅ Return request submitted for ${quantity} x ${itemName}. Waiting for approval.`);
+            alert(`✅ Return request submitted for ${quantity} x ${itemName}.\n${isPaid ? 'Waiting for approval and refund.' : 'Waiting for approval - shipment debt will be removed.'}`);
         } else alert('Failed to submit return: ' + (await response.json()).error);
     } catch (err) { alert('Failed to submit return. Make sure server is running.'); }
 };
+
 
 // ==================== BRANCH COMPLETE REPORT ====================
 function renderBranchCompleteReport() {

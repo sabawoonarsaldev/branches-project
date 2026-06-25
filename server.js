@@ -45,11 +45,11 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// // Local development
+// Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
-//     password: 'arsal123',  // پسورد MySQL خود را بنویس
+//     password: 'arsal123',  
 //     database: 'branchflow_db',
 //     waitForConnections: true,
 //     connectionLimit: 10,
@@ -202,18 +202,27 @@ app.post('/api/main-client-distributed', async (req, res) => {
     const { main_client, item_name, distributed_quantity } = req.body;
     const cleanItemName = item_name.trim();
     try {
-        const [result] = await pool.execute(
-            `INSERT INTO main_client_distributed (main_client, cleanItemName , distributed_quantity) 
-             VALUES (?, ?, ?)
-             ON DUPLICATE KEY UPDATE distributed_quantity = distributed_quantity + ?`,
-            [main_client, cleanItemName , distributed_quantity, distributed_quantity]
-        );
-
+        if (distributed_quantity < 0) {
+            // کاهش مقدار distributed
+            const [result] = await pool.execute(
+                `UPDATE main_client_distributed 
+                 SET distributed_quantity = GREATEST(0, distributed_quantity + ?)
+                 WHERE main_client = ? AND item_name = ?`,
+                [distributed_quantity, main_client, cleanItemName]
+            );
+        } else {
+            await pool.execute(
+                `INSERT INTO main_client_distributed (main_client, item_name, distributed_quantity) 
+                 VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE distributed_quantity = distributed_quantity + ?`,
+                [main_client, cleanItemName, distributed_quantity, distributed_quantity]
+            );
+        }
         const [rows] = await pool.execute(
-            'SELECT * FROM main_client_distributed WHERE main_client = ? AND cleanItemName  = ?',
-            [main_client, cleanItemName ]
+            'SELECT * FROM main_client_distributed WHERE main_client = ? AND item_name = ?',
+            [main_client, cleanItemName]
         );
-        res.json(rows[0]);
+        res.json(rows[0] || { main_client, item_name: cleanItemName, distributed_quantity: 0 });
     } catch (err) {
         console.error('Error in POST /api/main-client-distributed:', err);
         res.status(500).json({ error: err.message });
@@ -1350,6 +1359,91 @@ app.delete('/api/payments-to-admin/:id', async (req, res) => {
     }
 });
 
+
+app.put('/api/returns/:id/approve-full', async (req, res) => {
+    const { id } = req.params;
+    const { is_paid } = req.body;
+    
+    try {
+        const [returnRows] = await pool.execute('SELECT * FROM branch_returns WHERE id = ?', [id]);
+        if (returnRows.length === 0) return res.status(404).json({ error: 'Return not found' });
+        const ret = returnRows[0];
+
+        // 1. approve the return
+        await pool.execute('UPDATE branch_returns SET status = ?, approved_date = CURRENT_DATE WHERE id = ?', ['approved', id]);
+
+        const [branchItems] = await pool.execute(
+            'SELECT * FROM branch_inventory WHERE branch = ? AND item_name = ? ORDER BY id ASC',
+            [ret.branch, ret.item_name]
+        );
+        let remainingToRemove = parseInt(ret.quantity);
+        for (const bItem of branchItems) {
+            if (remainingToRemove <= 0) break;
+            let take = Math.min(bItem.quantity, remainingToRemove);
+            let newQty = bItem.quantity - take;
+            if (newQty <= 0) {
+                await pool.execute('DELETE FROM branch_inventory WHERE id = ?', [bItem.id]);
+            } else {
+                await pool.execute('UPDATE branch_inventory SET quantity = ? WHERE id = ?', [newQty, bItem.id]);
+            }
+            remainingToRemove -= take;
+        }
+
+        const [shipmentRows] = await pool.execute(
+            'SELECT * FROM shipments_to_branches WHERE branch = ? AND item = ? ORDER BY id DESC LIMIT 1',
+            [ret.branch, ret.item_name]
+        );
+
+        if (shipmentRows.length > 0) {
+            const shipment = shipmentRows[0];
+            const returnValue = parseFloat(ret.quantity) * parseFloat(ret.price_per_unit);
+
+            if (is_paid) {
+                await pool.execute(
+                    'UPDATE shipments_to_branches SET qty = GREATEST(0, qty - ?) WHERE id = ?',
+                    [ret.quantity, shipment.id]
+                );
+                await pool.execute(
+                    `UPDATE shipment_payments SET paid_amount = GREATEST(0, paid_amount - ?) WHERE shipment_id = ?`,
+                    [returnValue, shipment.unique_key]
+                );
+            } else {
+                await pool.execute(
+                    'UPDATE shipments_to_branches SET qty = GREATEST(0, qty - ?) WHERE id = ?',
+                    [ret.quantity, shipment.id]
+                );
+            }
+
+            const [updatedShipment] = await pool.execute('SELECT qty FROM shipments_to_branches WHERE id = ?', [shipment.id]);
+            if (updatedShipment.length > 0 && updatedShipment[0].qty <= 0) {
+                await pool.execute('DELETE FROM shipment_payments WHERE shipment_id = ?', [shipment.unique_key]);
+                await pool.execute('DELETE FROM shipments_to_branches WHERE id = ?', [shipment.id]);
+            }
+        }
+
+        await pool.execute(
+            `UPDATE main_client_distributed SET distributed_quantity = GREATEST(0, distributed_quantity - ?)
+            WHERE item_name = ? AND distributed_quantity > 0`,
+            [ret.quantity, ret.item_name]
+        );
+
+        // if (!is_paid) {
+        //     await pool.execute(
+        //         `UPDATE main_client_distributed 
+        //         SET distributed_quantity = GREATEST(0, distributed_quantity - ?)
+        //         WHERE item_name = ?`,
+        //         [ret.quantity, ret.item_name]
+        //     );
+        // }
+  
+
+        const [updatedReturn] = await pool.execute('SELECT * FROM branch_returns WHERE id = ?', [id]);
+        res.json(updatedReturn[0]);
+    } catch (err) {
+        console.error('Error in approve-full:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // Start server
 app.listen(PORT, () => {
