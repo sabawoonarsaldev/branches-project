@@ -395,20 +395,31 @@ function renderBranchCompleteReport() {
 function renderProductDetails(inventory, shipments, branch) {
     if (!inventory || inventory.length === 0) return '<p style="text-align:center;color:#64748b;">No products in inventory</p>';
 
-    return inventory.map((item, index) => {
+    // group by item name تا duplicate نشود
+    let groupedInventory = {};
+    inventory.forEach(item => {
+        if (!groupedInventory[item.name]) {
+            groupedInventory[item.name] = { ...item, quantity: 0 };
+        }
+        groupedInventory[item.name].quantity += item.quantity;
+    });
+
+    return Object.values(groupedInventory).map((item, index) => {
         let itemShipments = shipments.filter(s => s.item === item.name);
         let totalReceived = itemShipments.reduce((sum, s) => sum + (s.qty || 0), 0);
         let itemSales = salesHistory.filter(s => s.branch === branch && s.item === item.name);
         let sold = itemSales.reduce((sum, s) => sum + s.qty, 0);
         let revenue = itemSales.reduce((sum, s) => sum + s.revenue, 0);
-        let profit = itemSales.reduce((sum, s) => sum + s.profit, 0);
+
+        // ریترن‌های این آیتم
         let itemReturns = branchReturns.filter(r => {
-            let returnBranch = r.branch || r.branchName || r.branchUsername;
-            let returnItem = r.itemName || r.item || r.name;
-            let isApproved = r.status === 'approved' || r.status === 'paid' || r.approved === true || r.paid === true;
+            let returnBranch = r.branch || r.branchName;
+            let returnItem = r.itemName || r.item;
+            let isApproved = r.status === 'approved' || r.status === 'paid';
             return returnBranch === branch && returnItem === item.name && isApproved;
         });
-        let returnedQty = itemReturns.reduce((sum, r) => sum + (r.quantity || r.qty || 0), 0);
+        let returnedQty = itemReturns.reduce((sum, r) => sum + (r.quantity || 0), 0);
+
         let discount = getItemDiscount(item.name);
         let uniqueId = `product-${branch}-${item.name.replace(/\s+/g, '-')}-${index}`;
 
@@ -429,19 +440,20 @@ function renderProductDetails(inventory, shipments, branch) {
                     ${itemShipments.length > 0 ? `
                         <h5 style="margin-bottom:10px;">Shipment History</h5>
                         <table style="width:100%;font-size:14px;border-collapse:collapse;">
-                            <thead><tr style="background:#f1f5f9;"><th style="padding:8px;text-align:left;">Date</th><th style="padding:8px;text-align:left;">Received</th><th style="padding:8px;text-align:left;">Selling Price</th></tr></thead>
+                            <thead><tr style="background:#f1f5f9;"><th style="padding:8px;">Date</th><th style="padding:8px;">Received</th><th style="padding:8px;">Selling Price</th></tr></thead>
                             <tbody>${itemShipments.map(s => `<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:8px;">${s.date}</td><td style="padding:8px;">${s.qty}</td><td style="padding:8px;">${formatMoney(s.sellingPrice)}</td></tr>`).join('')}</tbody>
                         </table>` : '<p style="color:#64748b;">No shipment history</p>'}
                     ${itemSales.length > 0 ? `
                         <h5 style="margin:15px 0 10px;">Sales History</h5>
                         <table style="width:100%;font-size:14px;border-collapse:collapse;">
-                            <thead><tr style="background:#f1f5f9;"><th style="padding:8px;text-align:left;">Date</th><th style="padding:8px;text-align:left;">Qty</th><th style="padding:8px;text-align:left;">Price</th><th style="padding:8px;text-align:left;">Revenue</th></tr></thead>
+                            <thead><tr style="background:#f1f5f9;"><th style="padding:8px;">Date</th><th style="padding:8px;">Qty</th><th style="padding:8px;">Price</th><th style="padding:8px;">Revenue</th></tr></thead>
                             <tbody>${itemSales.map(s => `<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:8px;">${s.date}</td><td style="padding:8px;">${s.qty}</td><td style="padding:8px;">${formatMoney(s.price)}</td><td style="padding:8px;">${formatMoney(s.revenue)}</td></tr>`).join('')}</tbody>
                         </table>` : ''}
                 </div>
             </div>`;
     }).join('');
 }
+
 
 window.toggleProductDetails = function (productId) {
     let details = document.getElementById(productId);

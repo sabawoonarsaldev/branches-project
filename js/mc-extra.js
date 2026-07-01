@@ -344,7 +344,6 @@ window.approveReturn = async function (returnId) {
     if (!returnItem) { alert('Return not found!'); return; }
     
     let isPaid = returnItem.isPaid || returnItem.is_paid;
-    // بررسی از shipment payments
     if (isPaid === undefined) {
         let relatedShipment = mainClientToBranchShipments.find(s => 
             s.branch === returnItem.branch && s.item === returnItem.itemName
@@ -363,12 +362,10 @@ window.approveReturn = async function (returnId) {
         });
         if (!response.ok) throw new Error('Failed to approve return');
 
-        // آپدیت local data
         if (returnItem) {
             returnItem.status = 'approved';
             let returnValue = (returnItem.quantity || 0) * (returnItem.pricePerUnit || 0);
 
-            // آپدیت shipments local
             let relatedShipment = mainClientToBranchShipments.find(s => 
                 s.branch === returnItem.branch && s.item === returnItem.itemName
             );
@@ -411,6 +408,7 @@ window.approveReturn = async function (returnId) {
         alert(`✅ Return approved! ${isPaid ? 'Paid item returned and credited.' : 'Unpaid item returned - debt removed.'}`);
     } catch (err) { alert('Failed to approve return: ' + err.message); }
 };
+
 
 window.rejectReturn = async function (returnId) {
     let returnRequest = branchReturns.find(r => r.id === returnId);

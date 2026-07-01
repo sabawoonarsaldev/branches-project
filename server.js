@@ -45,7 +45,7 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// Local development
+// // Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
@@ -356,18 +356,27 @@ app.get('/api/sales/:branch', async (req, res) => {
 app.post('/api/sales', async (req, res) => {
     const { date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number, customer_name } = req.body;
     try {
-        const [result] = await pool.execute(
-           'INSERT INTO sales_history (date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number, customer_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number, customer_name || null]
-        );
-
-        const [rows] = await pool.execute('SELECT * FROM sales_history WHERE id = ?', [result.insertId]);
-        res.json(rows[0]);
+        let query, params;
+        try {
+            query = 'INSERT INTO sales_history (date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number, customer_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            params = [date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number, customer_name || null];
+            const [result] = await pool.execute(query, params);
+            const [rows] = await pool.execute('SELECT * FROM sales_history WHERE id = ?', [result.insertId]);
+            res.json(rows[0]);
+        } catch (colErr) {
+            if (colErr.code === 'ER_BAD_FIELD_ERROR') {
+                const [result] = await pool.execute(
+                    'INSERT INTO sales_history (date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [date, branch, item, qty, price, purchase_price, revenue, cost, profit, bill_number]
+                );
+                const [rows] = await pool.execute('SELECT * FROM sales_history WHERE id = ?', [result.insertId]);
+                res.json(rows[0]);
+            } else throw colErr;
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-
 // ============= SHIPMENTS API =============
 app.get('/api/shipments', async (req, res) => {
     try {
