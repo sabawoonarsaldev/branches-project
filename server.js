@@ -45,7 +45,7 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// // Local development
+// Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
@@ -198,33 +198,43 @@ app.get('/api/main-client-distributed/:mainClient', async (req, res) => {
     }
 });
 
+
 app.post('/api/main-client-distributed', async (req, res) => {
     const { main_client, item_name, distributed_quantity } = req.body;
     const cleanItemName = item_name.trim();
     try {
         if (distributed_quantity < 0) {
-            // کاهش مقدار distributed
-            const [result] = await pool.execute(
+            await pool.execute(
                 `UPDATE main_client_distributed 
                  SET distributed_quantity = GREATEST(0, distributed_quantity + ?)
-                 WHERE main_client = ? AND item_name = ?`,
+                 WHERE main_client = ? AND LOWER(TRIM(item_name)) = LOWER(?)`,
                 [distributed_quantity, main_client, cleanItemName]
             );
         } else {
-            await pool.execute(
-                `INSERT INTO main_client_distributed (main_client, item_name, distributed_quantity) 
-                 VALUES (?, ?, ?)
-                 ON DUPLICATE KEY UPDATE distributed_quantity = distributed_quantity + ?`,
-                [main_client, cleanItemName, distributed_quantity, distributed_quantity]
+            // اول چک کن آیا با همین نام (case insensitive) وجود دارد
+            const [existing] = await pool.execute(
+                'SELECT id, item_name FROM main_client_distributed WHERE main_client = ? AND LOWER(TRIM(item_name)) = LOWER(?)',
+                [main_client, cleanItemName]
             );
+            if (existing.length > 0) {
+                // آپدیت با همان نام موجود
+                await pool.execute(
+                    'UPDATE main_client_distributed SET distributed_quantity = distributed_quantity + ? WHERE main_client = ? AND LOWER(TRIM(item_name)) = LOWER(?)',
+                    [distributed_quantity, main_client, cleanItemName]
+                );
+            } else {
+                await pool.execute(
+                    'INSERT INTO main_client_distributed (main_client, item_name, distributed_quantity) VALUES (?, ?, ?)',
+                    [main_client, cleanItemName, distributed_quantity]
+                );
+            }
         }
         const [rows] = await pool.execute(
-            'SELECT * FROM main_client_distributed WHERE main_client = ? AND item_name = ?',
+            'SELECT * FROM main_client_distributed WHERE main_client = ? AND LOWER(TRIM(item_name)) = LOWER(?)',
             [main_client, cleanItemName]
         );
         res.json(rows[0] || { main_client, item_name: cleanItemName, distributed_quantity: 0 });
     } catch (err) {
-        console.error('Error in POST /api/main-client-distributed:', err);
         res.status(500).json({ error: err.message });
     }
 });

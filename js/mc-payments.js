@@ -834,21 +834,19 @@ window.addPaymentToAdmin = async function () {
     }
 };
 
-window.filterMcReportTime = function() {
+window.filterMcReportTime = async function() {
     let filter = document.getElementById('mcReportTimeFilter').value;
     let customRange = document.getElementById('mcReportCustomRange');
-    if (customRange) {
-        customRange.style.display = filter === 'custom' ? 'flex' : 'none';
-    }
+    if (customRange) customRange.style.display = filter === 'custom' ? 'flex' : 'none';
 
     let now = new Date();
-    let startDate, endDate = new Date();
+    let startDate = new Date(2000, 0, 1), endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
 
     if (filter === 'daily') {
         startDate = new Date(now.toDateString());
     } else if (filter === 'weekly') {
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - 7);
+        startDate = new Date(now); startDate.setDate(now.getDate() - 7);
     } else if (filter === 'monthly') {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
     } else if (filter === 'custom') {
@@ -858,32 +856,148 @@ window.filterMcReportTime = function() {
         startDate = new Date(startVal);
         endDate = new Date(endVal);
         endDate.setHours(23, 59, 59, 999);
-    } else {
-        startDate = new Date(2000, 0, 1);
     }
 
-    // فیلتر shipments
-    let filteredShipments = mainClientToBranchShipments.filter(s => {
-        if (filter === 'all') return true;
+    // فیلتر همه داده‌ها
+    let isAll = filter === 'all';
+
+    // Shared Inventory - فیلتر بر اساس تاریخ اضافه شدن
+    let filteredInventory = isAll ? mainInventory : mainInventory.filter(item => {
+        let d = new Date(item.date || 0);
+        return d >= startDate && d <= endDate;
+    });
+    let paidItems = filteredInventory.filter(i => {
+        let key = `${i.id}_${i.name}_${i.quantity}`;
+        return mainClientPayments[key] === true;
+    }).length;
+
+    // Expenses
+    let mainClient = currentUser.username;
+    let clientExps = mainClientExpenses[mainClient] || [];
+    let filteredExps = isAll ? clientExps : clientExps.filter(e => {
+        let d = new Date(e.date);
+        return d >= startDate && d <= endDate;
+    });
+    let totalExpenses = filteredExps.reduce((sum, e) => sum + e.amount, 0);
+
+    // Returns
+    let filteredReturns = isAll ? branchReturns : branchReturns.filter(r => {
+        let d = new Date(r.date);
+        return d >= startDate && d <= endDate;
+    });
+    let returnsValue = filteredReturns.reduce((sum, r) => sum + ((r.quantity||0)*(r.pricePerUnit||0)), 0);
+
+    // Branches Sales
+    let filteredSales = isAll ? salesHistory : salesHistory.filter(s => {
         let d = new Date(s.date);
         return d >= startDate && d <= endDate;
     });
+    let totalSold = filteredSales.reduce((sum, s) => sum + s.qty, 0);
+    let totalRevenue = filteredSales.reduce((sum, s) => sum + s.revenue, 0);
 
-    let paymentFromBranchesFiltered = filteredShipments.reduce((sum, s) => sum + getShipmentPaidAmount(s), 0);
-    let totalSaleFiltered = filteredShipments.reduce((sum, s) => sum + ((s.sellingPrice || 0) * (s.qty || 0)), 0);
+    // Total Items Value from Admin
+    let totalItemsValue = filteredInventory.reduce((sum, item) =>
+        sum + ((item.sellingPrice||0)*(item.quantity||0)), 0);
 
-    // آپدیت کارت ها
-    let grid = document.querySelector('#mainClientOwnReport .summary-cards-grid:last-of-type');
-    if (grid) {
-        let cards = grid.querySelectorAll('.summary-card-large');
-        // آپدیت Payment from Branches (آخرین کارت)
-        if (cards.length > 0) {
-            let lastCard = cards[cards.length - 1];
-            let amountEl = lastCard.querySelector('.amount');
-            if (amountEl) amountEl.textContent = formatMoney(paymentFromBranchesFiltered);
+    // Payment from Branches
+    let filteredShipments = isAll ? mainClientToBranchShipments : mainClientToBranchShipments.filter(s => {
+        let d = new Date(s.date);
+        return d >= startDate && d <= endDate;
+    });
+    let paymentFromBranches = filteredShipments.reduce((sum, s) => sum + getShipmentPaidAmount(s), 0);
+
+
+    // Payment to Admin - فیلتر شده
+let paymentToAdminFiltered = 0;
+try {
+    const paRes = await fetch(`/api/payments-to-admin/${currentUser.username}`);
+    if (paRes.ok) {
+        const paData = await paRes.json();
+        let filteredPa = isAll ? paData : paData.filter(p => {
+            let d = new Date(p.date);
+            return d >= startDate && d <= endDate;
+        });
+        paymentToAdminFiltered = filteredPa
+            .filter(p => p.status === 'paid')
+            .reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    }
+} catch(err) { console.log('Error:', err); }
+
+
+    // My Payments (Remaining Stock Value)
+    let filteredClientItems = isAll ? mainClientToBranchShipments : filteredShipments;
+    let remainingStockValue = filteredInventory.reduce((sum, item) => {
+        let distributed = mainClientDistributed[item.name] || 0;
+        let remaining = Math.max(0, item.quantity - distributed);
+        return sum + ((item.sellingPrice||0) * remaining);
+    }, 0);
+
+    // آپدیت کارت‌ها
+    let cards = document.querySelectorAll('#mainClientOwnReport .summary-card-large');
+    if (!cards || cards.length === 0) return;
+
+    // کارت 1: Shared Inventory
+    if (cards[0]) cards[0].innerHTML = `
+        <h4><i class="fas fa-box"></i> Shared Inventory</h4>
+        <div class="amount">${filteredInventory.length}</div>
+        <div class="subtitle">Total Items (${filter})</div>
+        <div style="margin-top:15px;">
+            <div class="summary-stats-row"><span class="label">Paid Items:</span><span class="value profit">${paidItems}</span></div>
+            <div class="summary-stats-row"><span class="label">Unpaid Items:</span><span class="value loss">${filteredInventory.length - paidItems}</span></div>
+        </div>`;
+
+    // کارت 2: My Payments
+    if (cards[1]) cards[1].innerHTML = `
+        <h4><i class="fas fa-credit-card"></i> My Payments</h4>
+        <div class="amount">${formatMoney(remainingStockValue)}</div>
+        <div class="subtitle">Remaining Stock Value (${filter})</div>
+        <div style="margin-top:15px;">
+            <div class="summary-stats-row"><span class="label">Total Items Value:</span><span class="value">${formatMoney(totalItemsValue)}</span></div>
+        </div>`;
+
+    if (cards[2]) cards[2].innerHTML = `
+        <h4><i class="fas fa-file-invoice"></i> My Expenses & Returns</h4>
+        <div class="amount">${formatMoney(totalExpenses)}</div>
+        <div class="subtitle">Total Expenses (${filter})</div>
+        <div style="margin-top:15px;">
+            <div class="summary-stats-row"><span class="label">Returns Value:</span><span class="value">${formatMoney(returnsValue)}</span></div>
+            <div class="summary-stats-row"><span class="label">Net Balance:</span><span class="value ${(remainingStockValue - totalExpenses) >= 0 ? 'profit' : 'loss'}">${formatMoney(remainingStockValue - totalExpenses)}</span></div>
+        </div>`;
+
+    let secondGrid = document.querySelectorAll('#mainClientOwnReport .summary-cards-grid');
+    if (secondGrid && secondGrid[1]) {
+        let cards2 = secondGrid[1].querySelectorAll('.summary-card-large');
+
+        if (cards2[0]) cards2[0].innerHTML = `
+            <h4><i class="fas fa-shopping-cart"></i> Branches Sales</h4>
+            <div class="amount">${totalSold}</div>
+            <div class="subtitle">Total Items Sold (${filter})</div>
+            <div style="margin-top:15px;">
+                <div class="summary-stats-row"><span class="label">Total Revenue:</span><span class="value">${formatMoney(totalRevenue)}</span></div>
+            </div>`;
+
+        if (cards2[1]) cards2[1].innerHTML = `
+            <h4 style="color:white;"><i class="fas fa-tags"></i> Total Sales Price</h4>
+            <div class="amount" style="color:white;font-size:22px;">${formatMoney(totalItemsValue)}</div>
+            <div class="subtitle" style="color:rgba(255,255,255,0.8);">Total Items Value (${filter})</div>`;
+
+            if (cards2[2]) {
+                let amountEl = cards2[2].querySelector('.amount');
+                if (amountEl) amountEl.textContent = formatMoney(paymentToAdminFiltered);
+                let subtitleEl = cards2[2].querySelector('.subtitle');
+                if (subtitleEl) subtitleEl.textContent = `Confirmed paid payments (${filter})`;
+            }
+
+
+        if (cards2[3]) {
+            let amountEl = cards2[3].querySelector('.amount');
+            if (amountEl) amountEl.textContent = formatMoney(paymentFromBranches);
+            let subtitleEl = cards2[3].querySelector('.subtitle');
+            if (subtitleEl) subtitleEl.textContent = `Total paid by branches (${filter})`;
         }
     }
 };
+
 
 window.editMcPaymentToAdmin = function(id, currentAmount, currentDesc) {
     const escapedDesc = (currentDesc || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');

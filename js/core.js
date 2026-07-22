@@ -651,7 +651,13 @@ async function getMainClientItems() {
 
     let results = [];
     for (let item of mainClientItems) {
-        let distributed = mainClientDistributed[item.name.trim()] || 0;
+        let cleanName = item.name.trim().toLowerCase();
+        let distributed = 0;
+        for (let key of Object.keys(mainClientDistributed)) {
+            if (key.trim().toLowerCase() === cleanName) {
+                distributed += mainClientDistributed[key] || 0;
+            }
+        }
         let remainingQuantity = Math.max(0, item.quantity - distributed);
         let isReturnedItem = item.supplier && item.supplier.includes('Returned from');
         let isPaid = isReturnedItem ? true : await isMainClientItemPaid(item);
@@ -665,17 +671,25 @@ async function getMainClientItems() {
     return results;
 }
 
+
 function calculateRemainingStockInMainClients(itemName) {
     let totalRemaining = 0;
+    let cleanName = itemName.trim().toLowerCase();
     for (let mainItem of mainClientItems) {
-        if (mainItem.name === itemName) {
-            let distributed = mainClientDistributed[mainItem.name.trim()] || 0;
+        if (mainItem.name.trim().toLowerCase() === cleanName) {
+            let distributed = 0;
+            for (let key of Object.keys(mainClientDistributed)) {
+                if (key.trim().toLowerCase() === cleanName) {
+                    distributed += mainClientDistributed[key] || 0;
+                }
+            }
             let remaining = (mainItem.quantity || 0) - distributed;
             if (remaining > 0) totalRemaining += remaining;
         }
     }
     return totalRemaining;
 }
+
 
 async function getMainClientPaymentSummary() {
     let clientItems = await getMainClientItems();
@@ -841,42 +855,81 @@ function renderPriceWithDiscount(originalPrice, currentPrice, itemName) {
 async function applyDiscountToItem(itemName, discountValue, isPercent) {
     let mainItem = mainInventory.find(i => i.name === itemName);
     if (!mainItem) return false;
-    let currentPrice = mainItem.sellingPrice;
+
+    // قیمت اصلی قبل از discount
+    let originalPrice = mainItem.sellingPrice;
     let newPrice, discountPercent;
+
     if (isPercent) {
         discountPercent = discountValue;
-        newPrice = currentPrice * (1 - discountPercent / 100);
+        newPrice = originalPrice * (1 - discountPercent / 100);
     } else {
-        newPrice = Math.max(0, currentPrice - discountValue);
-        discountPercent = Math.round((discountValue / currentPrice) * 100);
+        newPrice = Math.max(0, originalPrice - discountValue);
+        discountPercent = Math.round((discountValue / originalPrice) * 100);
     }
+
+    // ذخیره discount
     itemDiscounts[itemName] = {
         discountPercent, discountAmount: isPercent ? null : discountValue,
-        isPercent, newPrice, originalPrice: currentPrice, appliedDate: getTodayDate()
+        isPercent, newPrice, originalPrice, appliedDate: getTodayDate()
     };
+
+    // فقط main inventory قیمت را تغییر می‌دهد
     mainItem.sellingPrice = newPrice;
-    mainClientItems.forEach(item => { if (item.name === itemName) item.sellingPrice = newPrice; });
-    Object.keys(branchInventory).forEach(branch => {
-        branchInventory[branch].forEach(item => { if (item.name === itemName) item.sellingPrice = newPrice; });
+
+    // main client items هم آپدیت
+    mainClientItems.forEach(item => {
+        if (item.name === itemName) item.sellingPrice = newPrice;
     });
-    mainClientToBranchShipments.forEach(shipment => { if (shipment.item === itemName) shipment.sellingPrice = newPrice; });
+
+    // branch inventory - فقط ایتم‌هایی که هنوز فروخته نشده
+    Object.keys(branchInventory).forEach(branch => {
+        branchInventory[branch].forEach(item => {
+            if (item.name === itemName) item.sellingPrice = newPrice;
+        });
+    });
+
+    // shipments - فقط shipments که هنوز remaining دارند
+    mainClientToBranchShipments.forEach(shipment => {
+        if (shipment.item === itemName) {
+            // چک کن آیا این shipment هنوز موجودی در branch دارد
+            let branchName = shipment.branch;
+            let branchItems = branchInventory[branchName] || [];
+            let hasRemainingStock = branchItems.some(i => 
+                i.name === itemName && i.quantity > 0
+            );
+            // فقط اگر موجودی دارد قیمت را تغییر بده
+            if (hasRemainingStock) {
+                shipment.sellingPrice = newPrice;
+            }
+        }
+    });
+
+    // salesHistory را تغییر نده - فروشات قبلی به قیمت اصلی بمانند
+
     saveData();
+
     try {
         await saveDiscount({
-            item_name: itemName, discount_percent: itemDiscounts[itemName].discountPercent,
-            discount_amount: itemDiscounts[itemName].discountAmount, is_percent: itemDiscounts[itemName].isPercent,
-            new_price: itemDiscounts[itemName].newPrice, original_price: itemDiscounts[itemName].originalPrice,
+            item_name: itemName,
+            discount_percent: discountPercent,
+            discount_amount: isPercent ? null : discountValue,
+            is_percent: isPercent,
+            new_price: newPrice,
+            original_price: originalPrice,
             applied_date: getTodayDate()
         });
     } catch (err) { console.log('Error saving discount:', err); }
+
     if (currentUser) refreshCurrentSection();
     return true;
 }
 
 async function applyDiscountToAllItems(discountValue, isPercent) {
-    mainInventory.forEach(item => {
+    for (const item of mainInventory) {
         let currentPrice = item.sellingPrice;
         let newPrice, discountPercent;
+
         if (isPercent) {
             discountPercent = discountValue;
             newPrice = currentPrice * (1 - discountPercent / 100);
@@ -884,32 +937,62 @@ async function applyDiscountToAllItems(discountValue, isPercent) {
             newPrice = Math.max(0, currentPrice - discountValue);
             discountPercent = Math.round((discountValue / currentPrice) * 100);
         }
+
         itemDiscounts[item.name] = {
             discountPercent, discountAmount: isPercent ? null : discountValue,
             isPercent, newPrice, originalPrice: currentPrice, appliedDate: getTodayDate()
         };
         item.sellingPrice = newPrice;
+    }
+
+    // main client items
+    mainClientItems.forEach(item => {
+        if (itemDiscounts[item.name]) item.sellingPrice = itemDiscounts[item.name].newPrice;
     });
-    mainClientItems.forEach(item => { if (itemDiscounts[item.name]) item.sellingPrice = itemDiscounts[item.name].newPrice; });
+
+    // branch inventory - فقط ایتم‌های موجود
     Object.keys(branchInventory).forEach(branch => {
-        branchInventory[branch].forEach(item => { if (itemDiscounts[item.name]) item.sellingPrice = itemDiscounts[item.name].newPrice; });
+        branchInventory[branch].forEach(item => {
+            if (itemDiscounts[item.name]) item.sellingPrice = itemDiscounts[item.name].newPrice;
+        });
     });
-    mainClientToBranchShipments.forEach(shipment => { if (itemDiscounts[shipment.item]) shipment.sellingPrice = itemDiscounts[shipment.item].newPrice; });
+
+    // shipments - فقط آنهایی که موجودی دارند
+    mainClientToBranchShipments.forEach(shipment => {
+        if (itemDiscounts[shipment.item]) {
+            let branchItems = branchInventory[shipment.branch] || [];
+            let hasRemainingStock = branchItems.some(i =>
+                i.name === shipment.item && i.quantity > 0
+            );
+            if (hasRemainingStock) {
+                shipment.sellingPrice = itemDiscounts[shipment.item].newPrice;
+            }
+        }
+    });
+
+    // salesHistory تغییر نمی‌کند
+
     saveData();
+
     try {
         for (const item of mainInventory) {
             if (itemDiscounts[item.name]) {
                 await saveDiscount({
-                    item_name: item.name, discount_percent: itemDiscounts[item.name].discountPercent,
-                    discount_amount: itemDiscounts[item.name].discountAmount, is_percent: itemDiscounts[item.name].isPercent,
-                    new_price: itemDiscounts[item.name].newPrice, original_price: itemDiscounts[item.name].originalPrice,
+                    item_name: item.name,
+                    discount_percent: itemDiscounts[item.name].discountPercent,
+                    discount_amount: itemDiscounts[item.name].discountAmount,
+                    is_percent: itemDiscounts[item.name].isPercent,
+                    new_price: itemDiscounts[item.name].newPrice,
+                    original_price: itemDiscounts[item.name].originalPrice,
                     applied_date: getTodayDate()
                 });
             }
         }
-    } catch (err) { console.log('Error saving all discounts:', err); }
+    } catch (err) { console.log('Error saving discounts:', err); }
+
     if (currentUser) refreshCurrentSection();
 }
+
 
 // ==================== BILL HELPERS ====================
 function generateBillId(branch, date) { return `BILL-${branch}-${date}`; }

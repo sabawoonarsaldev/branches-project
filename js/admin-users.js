@@ -544,74 +544,94 @@ async function renderAdminPaymentsToAdmin() {
         if (res.ok) payments = await res.json();
     } catch (err) { console.log('Error loading payments:', err); }
 
-    let totalSaleValue = mainInventory.reduce((sum, item) => {
-        return sum + ((parseFloat(item.sellingPrice) || 0) * (parseInt(item.quantity) || 0));
-    }, 0);
+    window._allAdminPayments = payments;
 
-    let totalPurchaseValue = mainInventory.reduce((sum, item) => {
-        return sum + ((parseFloat(item.purchasePrice) || 0) * (parseInt(item.quantity) || 0));
-    }, 0);
-
+    let totalSaleValue = mainInventory.reduce((sum, item) =>
+        sum + ((parseFloat(item.sellingPrice) || 0) * (parseInt(item.quantity) || 0)), 0);
+    let totalPurchaseValue = mainInventory.reduce((sum, item) =>
+        sum + ((parseFloat(item.purchasePrice) || 0) * (parseInt(item.quantity) || 0)), 0);
     let allExpenses = 0;
     for (const exp of expenses) allExpenses += parseFloat(exp.amount) || 0;
     for (const client in mainClientExpenses) {
         if (Array.isArray(mainClientExpenses[client]))
             for (const exp of mainClientExpenses[client]) allExpenses += parseFloat(exp.amount) || 0;
     }
-
     let profitValue = totalSaleValue - totalPurchaseValue - allExpenses;
     let totalPaid = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + parseFloat(p.amount), 0);
     let totalUnpaid = payments.filter(p => p.status === 'unpaid').reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
     let html = `
         <div class="header-actions"><h2 class="page-title">Payment to Admin</h2><button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button></div>
+
+        <div style="background:#f0fdf4;border-radius:16px;padding:16px;margin-bottom:20px;border:2px solid #bbf7d0;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+            <label style="color:#166534;font-weight:600;"><i class="fas fa-calendar"></i> Time Period:</label>
+            <select id="payToAdminTimeFilter" onchange="filterPayToAdminByTime()" style="padding:10px 16px;border:2px solid #bbf7d0;border-radius:12px;background:white;color:#166534;font-weight:600;">
+                <option value="all">All Time</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="custom">Custom Range</option>
+            </select>
+            <div id="payToAdminCustomRange" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="date" id="payToAdminStart" value="${getWeekAgoDate()}" style="padding:10px;border:2px solid #bbf7d0;border-radius:12px;">
+                <span style="color:#166534;">to</span>
+                <input type="date" id="payToAdminEnd" value="${getTodayDate()}" style="padding:10px;border:2px solid #bbf7d0;border-radius:12px;">
+                <button onclick="filterPayToAdminByTime()" class="btn-filter" style="width:auto;margin-top:0;padding:10px 16px;">Apply</button>
+            </div>
+        </div>
+
         <div class="stats-grid" style="margin-bottom:24px;">
+            <div style="background:#f0fdf4;border-radius:20px;padding:24px;margin-bottom:24px;border:2px solid #bbf7d0;grid-column:1/-1;">
+                <h3 style="color:#166534;"><i class="fas fa-chart-line" style="color:#22c55e;margin-right:8px;"></i>Financial Overview</h3>
+                <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:0;" id="financeOverviewGrid">
+                    <div class="stat-card" style="background:linear-gradient(145deg,#3b82f6,#2563eb);color:white;border:none;">
+                        <i class="fas fa-tags" style="color:white;"></i>
+                        <h4 style="color:rgba(255,255,255,0.8);">Total Sale Price</h4>
+                        <div class="stat-value" style="color:white;font-size:20px;">${formatMoney(totalSaleValue)}</div>
+                        <small style="color:rgba(255,255,255,0.7);">Selling Price × Qty</small>
+                    </div>
+                    <div class="stat-card" style="background:linear-gradient(145deg,#f59e0b,#d97706);color:white;border:none;">
+                        <i class="fas fa-shopping-cart" style="color:white;"></i>
+                        <h4 style="color:rgba(255,255,255,0.8);">Total Purchase Price</h4>
+                        <div class="stat-value" style="color:white;font-size:20px;">${formatMoney(totalPurchaseValue)}</div>
+                        <small style="color:rgba(255,255,255,0.7);">Purchase Price × Qty</small>
+                    </div>
+                    <div class="stat-card" style="background:linear-gradient(145deg,#ef4444,#b91c1c);color:white;border:none;">
+                        <i class="fas fa-file-invoice" style="color:white;"></i>
+                        <h4 style="color:rgba(255,255,255,0.8);">Total Expenses</h4>
+                        <div class="stat-value" style="color:white;font-size:20px;">${formatMoney(allExpenses)}</div>
+                        <small style="color:rgba(255,255,255,0.7);">All expenses</small>
+                    </div>
+                    <div class="stat-card" style="background:${profitValue >= 0 ? 'linear-gradient(145deg,#22c55e,#16a34a)' : 'linear-gradient(145deg,#ef4444,#b91c1c)'};color:white;border:none;">
+                        <i class="fas fa-wallet" style="color:white;"></i>
+                        <h4 style="color:rgba(255,255,255,0.8);">Profit</h4>
+                        <div class="stat-value" style="color:white;font-size:20px;">${formatMoney(profitValue)}</div>
+                        <small style="color:rgba(255,255,255,0.7);">Sale - Purchase - Expenses</small>
+                    </div>
+                </div>
+            </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;" id="payToAdminPaidCard">
+                <i class="fas fa-check-circle" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Total Paid</h4>
+                <div class="stat-value" style="color:white;">${formatMoney(totalPaid)}</div>
+            </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#ef4444,#b91c1c);color:white;" id="payToAdminUnpaidCard">
+                <i class="fas fa-clock" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Total Unpaid</h4>
+                <div class="stat-value" style="color:white;">${formatMoney(totalUnpaid)}</div>
+            </div>
+            <div class="stat-card" id="payToAdminCountCard">
+                <i class="fas fa-list"></i>
+                <h4>Total Records</h4>
+                <div class="stat-value">${payments.length}</div>
+            </div>
+        </div>
 
-
-    <div style="background:#f0fdf4;border-radius:20px;padding:24px;margin-bottom:24px;border:2px solid #bbf7d0;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-            <h3 style="color:#166534;"><i class="fas fa-chart-line" style="color:#22c55e;margin-right:8px;"></i>Financial Overview</h3>
-            <div class="form-group" style="margin-bottom:0;min-width:180px;">
-                <select id="financeTimeFilter" onchange="filterAdminPaymentsFinance()" style="padding:10px;border:2px solid #bbf7d0;border-radius:12px;background:white;color:#166534;font-weight:600;width:100%;">
-                    <option value="all">All Time</option>
-                    <option value="today">Today</option>
-                    <option value="weekly">This Week</option>
-                    <option value="monthly">This Month</option>
-                </select>
+        <div class="search-container" style="margin-bottom:20px;">
+            <div class="search-box"><i class="fas fa-search"></i>
+                <input type="text" id="payToAdminSearch" placeholder="Search by client name or description..." onkeyup="filterAdminPaymentsToAdmin()">
             </div>
-        </div>
-        <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:0;" id="financeOverviewGrid">
-            <div class="stat-card" style="background:linear-gradient(145deg,#3b82f6,#2563eb);color:white;border:none;">
-                <i class="fas fa-tags" style="color:white;"></i>
-                <h4 style="color:rgba(255,255,255,0.8);">Total Sale Price</h4>
-                <div class="stat-value" style="color:white;font-size:20px;">${formatMoney(totalSaleValue)}</div>
-                <small style="color:rgba(255,255,255,0.7);">Selling Price × Qty</small>
-            </div>
-            <div class="stat-card" style="background:linear-gradient(145deg,#f59e0b,#d97706);color:white;border:none;">
-                <i class="fas fa-shopping-cart" style="color:white;"></i>
-                <h4 style="color:rgba(255,255,255,0.8);">Total Purchase Price</h4>
-                <div class="stat-value" style="color:white;font-size:20px;">${formatMoney(totalPurchaseValue)}</div>
-                <small style="color:rgba(255,255,255,0.7);">Purchase Price × Qty</small>
-            </div>
-            <div class="stat-card" style="background:linear-gradient(145deg,#ef4444,#b91c1c);color:white;border:none;">
-                <i class="fas fa-file-invoice" style="color:white;"></i>
-                <h4 style="color:rgba(255,255,255,0.8);">Total Expenses</h4>
-                <div class="stat-value" style="color:white;font-size:20px;">${formatMoney(allExpenses)}</div>
-                <small style="color:rgba(255,255,255,0.7);">All expenses</small>
-            </div>
-            <div class="stat-card" style="background:${profitValue >= 0 ? 'linear-gradient(145deg,#22c55e,#16a34a)' : 'linear-gradient(145deg,#ef4444,#b91c1c)'};color:white;border:none;">
-                <i class="fas fa-wallet" style="color:white;"></i>
-                <h4 style="color:rgba(255,255,255,0.8);">Profit</h4>
-                <div class="stat-value" style="color:white;font-size:20px;">${formatMoney(profitValue)}</div>
-                <small style="color:rgba(255,255,255,0.7);">Sale - Purchase - Expenses</small>
-            </div>
-        </div>
-    </div>
-            <div class="stat-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;"><i class="fas fa-check-circle" style="color:white;"></i><h4 style="color:rgba(255,255,255,0.8);">Total Paid</h4><div class="stat-value" style="color:white;">${formatMoney(totalPaid)}</div></div>
-            <div class="stat-card" style="background:linear-gradient(145deg,#ef4444,#b91c1c);color:white;"><i class="fas fa-clock" style="color:white;"></i><h4 style="color:rgba(255,255,255,0.8);">Total Unpaid</h4><div class="stat-value" style="color:white;">${formatMoney(totalUnpaid)}</div></div>
-            <div class="stat-card"><i class="fas fa-list"></i><h4>Total Records</h4><div class="stat-value">${payments.length}</div></div>
-        </div>
-        <div class="search-container" style="margin-bottom:20px;"><div class="search-box"><i class="fas fa-search"></i><input type="text" id="payToAdminSearch" placeholder="Search by client name or description..." onkeyup="filterAdminPaymentsToAdmin()"></div></div>`;
+        </div>`;
 
     if (payments.length === 0) {
         html += `<div class="empty-state"><i class="fas fa-money-bill-wave"></i><h3>No Payments Yet</h3></div>`;
@@ -622,8 +642,47 @@ async function renderAdminPaymentsToAdmin() {
         </table></div>`;
     }
     document.getElementById('content').innerHTML = html;
-    window._allAdminPayments = payments;
 }
+
+window.filterPayToAdminByTime = function() {
+    let filter = document.getElementById('payToAdminTimeFilter')?.value || 'all';
+    let customRange = document.getElementById('payToAdminCustomRange');
+    if (customRange) customRange.style.display = filter === 'custom' ? 'flex' : 'none';
+    if (filter === 'custom') return;
+
+    let now = new Date();
+    let startDate = new Date(2000, 0, 1), endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+
+    if (filter === 'daily') {
+        startDate = new Date(now.toDateString());
+    } else if (filter === 'weekly') {
+        startDate = new Date(now); startDate.setDate(now.getDate() - 7);
+    } else if (filter === 'monthly') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    let allPayments = window._allAdminPayments || [];
+    let filtered = filter === 'all' ? allPayments : allPayments.filter(p => {
+        let d = new Date(p.date);
+        return d >= startDate && d <= endDate;
+    });
+
+    let totalPaid = filtered.filter(p => p.status === 'paid').reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    let totalUnpaid = filtered.filter(p => p.status === 'unpaid').reduce((sum, p) => sum + parseFloat(p.amount), 0);
+
+    let paidCard = document.getElementById('payToAdminPaidCard');
+    let unpaidCard = document.getElementById('payToAdminUnpaidCard');
+    let countCard = document.getElementById('payToAdminCountCard');
+
+    if (paidCard) paidCard.querySelector('.stat-value').textContent = formatMoney(totalPaid);
+    if (unpaidCard) unpaidCard.querySelector('.stat-value').textContent = formatMoney(totalUnpaid);
+    if (countCard) countCard.querySelector('.stat-value').textContent = filtered.length;
+
+    let tbody = document.getElementById('adminPayToAdminBody');
+    if (tbody) tbody.innerHTML = renderAdminPayToAdminRows(filtered);
+};
+
 
 function renderAdminPayToAdminRows(payments) {
     return payments.map(p => `
@@ -663,7 +722,6 @@ window.filterAdminPaymentsFinance = function() {
 
     let filteredInventory = mainInventory;
 
-    // محاسبه بر اساس shipments در تایم انتخابی
     let filteredShipments = mainClientToBranchShipments.filter(s => {
         if (filter === 'all') return true;
         let d = new Date(s.date);
@@ -740,7 +798,6 @@ window.saveEditPaymentToAdmin = async function(id) {
     if (isNaN(amount) || amount <= 0) { alert('Please enter a valid amount'); return; }
 
     try {
-        // آپدیت مقدار و تغییر status به unpaid
         const res = await fetch(`/api/payments-to-admin/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
