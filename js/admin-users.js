@@ -129,17 +129,33 @@ window.toggleBlockUser = async function (id) {
     } catch (err) { alert('Failed: ' + err.message); }
 };
 
+
 window.deleteUser = async function (id) {
     let user = users.find(u => u.id === id);
     if (!user) return;
     if (user.role === 'admin' && user.username === 'admin') { alert('Cannot delete the main admin user!'); return; }
-    if (confirm(`Delete user "${user.username}" permanently?`)) {
+    if (confirm(`Delete user "${user.username}" permanently? ALL data will be deleted!`)) {
         try {
+            if (user.role === 'branch') {
+                await fetch(`/api/clear-branch-data/${encodeURIComponent(user.username)}`, { method: 'DELETE' });
+            }
+            
             await fetch(`/api/users/${id}/hard`, { method: 'DELETE' });
+            
             users = users.filter(u => u.id !== id);
-            if (user.role === 'branch') { delete branchInventory[user.username]; delete branchFinance[user.username]; delete branchExpenses[user.username]; }
-            else if (user.role === 'mainclient') { delete mainClientExpenses[user.username]; }
-            renderUsers(); alert(`User "${user.username}" deleted successfully!`);
+            if (user.role === 'branch') {
+                delete branchInventory[user.username];
+                delete branchFinance[user.username];
+                delete branchExpenses[user.username];
+                mainClientToBranchShipments = mainClientToBranchShipments.filter(s => s.branch !== user.username);
+                salesHistory = salesHistory.filter(s => s.branch !== user.username);
+            } else if (user.role === 'mainclient') {
+                delete mainClientExpenses[user.username];
+            }
+            
+            saveData();
+            renderUsers();
+            alert(`User "${user.username}" and ALL data deleted successfully!`);
         } catch (error) { alert('Failed to delete user: ' + error.message); }
     }
 };

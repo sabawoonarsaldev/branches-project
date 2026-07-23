@@ -45,7 +45,7 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// Local development
+// // Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
@@ -695,13 +695,54 @@ app.delete('/api/users/:id/hard', async (req, res) => {
         console.log(`Hard deleting user: ${user.username} with role: ${user.role}`);
 
         if (user.role === 'branch') {
-            await pool.execute('DELETE FROM branch_inventory WHERE branch = ?', [user.username]);
-            await pool.execute('DELETE FROM shipments_to_branches WHERE branch = ?', [user.username]);
-            await pool.execute('DELETE FROM sales_history WHERE branch = ?', [user.username]);
-            await pool.execute('DELETE FROM branch_returns WHERE branch = ?', [user.username]);
-            await pool.execute('DELETE FROM shipment_reminders WHERE branch = ?', [user.username]);
-            await pool.execute('DELETE FROM expenses WHERE user_role = ? AND username = ?', ['branch', user.username]);
-            console.log(`Deleted branch data for ${user.username}`);
+        console.log(`Deleting all data for branch: ${user.username}`);
+        
+        try { await pool.execute('DELETE FROM branch_inventory WHERE branch = ?', [user.username]); } catch(e) { console.log('branch_inventory:', e.message); }
+        try { await pool.execute('DELETE FROM branch_inventory WHERE branch = ?', [user.username.trim()]); } catch(e) {}
+        
+        try { await pool.execute('DELETE FROM shipments_to_branches WHERE branch = ?', [user.username]); } catch(e) { console.log('shipments:', e.message); }
+        try { await pool.execute('DELETE FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) {}
+        
+        try { await pool.execute('DELETE FROM sales_history WHERE branch = ?', [user.username]); } catch(e) { console.log('sales:', e.message); }
+        try { await pool.execute('DELETE FROM sales_history WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) {}
+        
+        try { await pool.execute('DELETE FROM branch_returns WHERE branch = ?', [user.username]); } catch(e) { console.log('returns:', e.message); }
+        try { await pool.execute('DELETE FROM branch_returns WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) {}
+        
+        try { await pool.execute('DELETE FROM shipment_reminders WHERE branch = ?', [user.username]); } catch(e) { console.log('reminders:', e.message); }
+        
+        try { 
+            const [shipmentKeys] = await pool.execute(
+                'SELECT unique_key FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?)', 
+                [user.username]
+            );
+            for (const sk of shipmentKeys) {
+                await pool.execute('DELETE FROM shipment_payments WHERE shipment_id = ?', [sk.unique_key]);
+            }
+        } catch(e) { console.log('shipment_payments:', e.message); }
+        
+        try { await pool.execute('DELETE FROM expenses WHERE user_role = ? AND username = ?', ['branch', user.username]); } catch(e) {}
+        try { await pool.execute('DELETE FROM expenses WHERE user_role = ? AND LOWER(TRIM(username)) = LOWER(?)', ['branch', user.username]); } catch(e) {}
+        
+        try { await pool.execute('DELETE FROM low_stock_alerts WHERE branch = ?', [user.username]); } catch(e) {}
+        
+        try {
+            const [sentItems] = await pool.execute(
+                'SELECT item, SUM(qty) as total_qty FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?) GROUP BY item',
+                [user.username]
+            );
+            for (const item of sentItems) {
+                await pool.execute(
+                    `UPDATE main_client_distributed 
+                    SET distributed_quantity = GREATEST(0, distributed_quantity - ?)
+                    WHERE LOWER(TRIM(item_name)) = LOWER(?)`,
+                    [item.total_qty, item.item]
+                );
+            }
+        } catch(e) { console.log('distributed update:', e.message); }
+        
+        console.log(`All data deleted for branch: ${user.username}`);
+
         } else if (user.role === 'mainclient') {
             await pool.execute('DELETE FROM main_client_payments WHERE main_client = ?', [user.username]);
             await pool.execute('DELETE FROM main_client_distributed WHERE main_client = ?', [user.username]);
@@ -726,6 +767,32 @@ app.delete('/api/users/:id/hard', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+
+app.delete('/api/clear-branch-data/:branchName', async (req, res) => {
+    const { branchName } = req.params;
+    try {
+        await pool.execute('DELETE FROM branch_inventory WHERE LOWER(TRIM(branch)) = LOWER(?)', [branchName]);
+        await pool.execute('DELETE FROM sales_history WHERE LOWER(TRIM(branch)) = LOWER(?)', [branchName]);
+        await pool.execute('DELETE FROM branch_returns WHERE LOWER(TRIM(branch)) = LOWER(?)', [branchName]);
+        await pool.execute('DELETE FROM shipment_reminders WHERE LOWER(TRIM(branch)) = LOWER(?)', [branchName]);
+        await pool.execute('DELETE FROM expenses WHERE user_role = "branch" AND LOWER(TRIM(username)) = LOWER(?)', [branchName]);
+        await pool.execute('DELETE FROM low_stock_alerts WHERE LOWER(TRIM(branch)) = LOWER(?)', [branchName]);
+        
+        const [shipments] = await pool.execute(
+            'SELECT unique_key FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?)', [branchName]
+        );
+        for (const s of shipments) {
+            await pool.execute('DELETE FROM shipment_payments WHERE shipment_id = ?', [s.unique_key]);
+        }
+        await pool.execute('DELETE FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?)', [branchName]);
+        
+        res.json({ message: 'Branch data cleared successfully' });
+    } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 
 // Delete branch inventory
 app.delete('/api/branch-inventory/:branch', async (req, res) => {
