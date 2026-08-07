@@ -24,37 +24,37 @@ require('dotenv').config();
 //     console.error('MySQL connection error:', err);
 // });
 
-// MySQL connection pool (Aiven / production ready)
+// // MySQL connection pool (Aiven / production ready)
 
-const ca_path = process.env.CA || '/etc/secrets/ca.pem';
-const pool = mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    port: process.env.DB_PORT,
-
-    waitForConnections: true,
-    connectionLimit: 10,
-
-    ssl: {
-        ca: fs.readFileSync(ca_path),
-        rejectUnauthorized: true
-    },
-
-    timezone: '+00:00'
-});
-
-// Local development
+// const ca_path = process.env.CA || '/etc/secrets/ca.pem';
 // const pool = mysql.createPool({
-//     host: 'localhost',
-//     user: 'root',
-//     password: 'arsal123',  
-//     database: 'branchflow_db',
+//     host: process.env.DB_HOST,
+//     user: process.env.DB_USER,
+//     password: process.env.DB_PASSWORD,
+//     database: process.env.DB_NAME,
+//     port: process.env.DB_PORT,
+
 //     waitForConnections: true,
 //     connectionLimit: 10,
+
+//     ssl: {
+//         ca: fs.readFileSync(ca_path),
+//         rejectUnauthorized: true
+//     },
+
 //     timezone: '+00:00'
 // });
+
+// Local development
+const pool = mysql.createPool({
+    host: 'localhost',
+    user: 'root',
+    password: 'arsal123',  
+    database: 'branchflow_db',
+    waitForConnections: true,
+    connectionLimit: 10,
+    timezone: '+00:00'
+});
 
 
 pool.getConnection()
@@ -919,11 +919,22 @@ app.get('/api/expenses/:role/:username', async (req, res) => {
 });
 
 // Update branch inventory quantity
+
 app.put('/api/branch-inventory/:id', async (req, res) => {
     const { id } = req.params;
-    const { quantity, original_quantity } = req.body;
+    const { quantity, original_quantity, selling_price } = req.body;
     try {
-        if (original_quantity !== undefined) {
+        if (selling_price !== undefined && quantity !== undefined) {
+            await pool.execute(
+                'UPDATE branch_inventory SET quantity = ?, selling_price = ? WHERE id = ?',
+                [quantity, selling_price, id]
+            );
+        } else if (selling_price !== undefined) {
+            await pool.execute(
+                'UPDATE branch_inventory SET selling_price = ? WHERE id = ?',
+                [selling_price, id]
+            );
+        } else if (original_quantity !== undefined) {
             await pool.execute(
                 'UPDATE branch_inventory SET quantity = ?, original_quantity = ? WHERE id = ?',
                 [quantity, original_quantity, id]
@@ -934,13 +945,28 @@ app.put('/api/branch-inventory/:id', async (req, res) => {
                 [quantity, id]
             );
         }
-
         const [rows] = await pool.execute('SELECT * FROM branch_inventory WHERE id = ?', [id]);
         res.json(rows[0]);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
+
+
+app.put('/api/branch-inventory/price/:itemName', async (req, res) => {
+    const { itemName } = req.params;
+    const { selling_price } = req.body;
+    try {
+        await pool.execute(
+            'UPDATE branch_inventory SET selling_price = ? WHERE LOWER(TRIM(item_name)) = LOWER(?)',
+            [selling_price, itemName.trim()]
+        );
+        res.json({ message: 'Prices updated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 
 // Delete shipment payment
 app.delete('/api/shipment-payment/:shipmentId', async (req, res) => {

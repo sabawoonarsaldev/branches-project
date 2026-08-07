@@ -874,7 +874,6 @@ async function applyDiscountToItem(itemName, discountValue, isPercent) {
     let mainItem = mainInventory.find(i => i.name === itemName);
     if (!mainItem) return false;
 
-    // قیمت اصلی قبل از discount
     let originalPrice = mainItem.sellingPrice;
     let newPrice, discountPercent;
 
@@ -886,44 +885,64 @@ async function applyDiscountToItem(itemName, discountValue, isPercent) {
         discountPercent = Math.round((discountValue / originalPrice) * 100);
     }
 
-    // ذخیره discount
     itemDiscounts[itemName] = {
         discountPercent, discountAmount: isPercent ? null : discountValue,
         isPercent, newPrice, originalPrice, appliedDate: getTodayDate()
     };
 
-    // فقط main inventory قیمت را تغییر می‌دهد
     mainItem.sellingPrice = newPrice;
 
-    // main client items هم آپدیت
     mainClientItems.forEach(item => {
         if (item.name === itemName) item.sellingPrice = newPrice;
     });
 
-    // branch inventory - فقط ایتم‌هایی که هنوز فروخته نشده
     Object.keys(branchInventory).forEach(branch => {
         branchInventory[branch].forEach(item => {
             if (item.name === itemName) item.sellingPrice = newPrice;
         });
     });
 
-    // shipments - فقط shipments که هنوز remaining دارند
     mainClientToBranchShipments.forEach(shipment => {
         if (shipment.item === itemName) {
-            // چک کن آیا این shipment هنوز موجودی در branch دارد
             let branchName = shipment.branch;
             let branchItems = branchInventory[branchName] || [];
             let hasRemainingStock = branchItems.some(i => 
                 i.name === itemName && i.quantity > 0
             );
-            // فقط اگر موجودی دارد قیمت را تغییر بده
             if (hasRemainingStock) {
                 shipment.sellingPrice = newPrice;
             }
         }
     });
 
-    // salesHistory را تغییر نده - فروشات قبلی به قیمت اصلی بمانند
+    try {
+        const branches = getBranchUsers();
+        for (const branchUser of branches) {
+            const branchItems = branchInventory[branchUser.username] || [];
+            for (const bItem of branchItems) {
+                if (bItem.name === itemName && bItem.id) {
+                    await fetch(`/api/branch-inventory/${bItem.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            quantity: bItem.quantity,
+                            selling_price: newPrice
+                        })
+                    });
+                }
+            }
+        }
+    } catch(err) { console.log('Error updating branch inventory prices:', err); }
+
+
+    try {
+        await fetch(`/api/branch-inventory/price/${encodeURIComponent(itemName)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selling_price: newPrice })
+        });
+    } catch(err) { console.log('Error updating branch prices:', err); }
+
 
     saveData();
 
@@ -968,14 +987,12 @@ async function applyDiscountToAllItems(discountValue, isPercent) {
         if (itemDiscounts[item.name]) item.sellingPrice = itemDiscounts[item.name].newPrice;
     });
 
-    // branch inventory - فقط ایتم‌های موجود
     Object.keys(branchInventory).forEach(branch => {
         branchInventory[branch].forEach(item => {
             if (itemDiscounts[item.name]) item.sellingPrice = itemDiscounts[item.name].newPrice;
         });
     });
 
-    // shipments - فقط آنهایی که موجودی دارند
     mainClientToBranchShipments.forEach(shipment => {
         if (itemDiscounts[shipment.item]) {
             let branchItems = branchInventory[shipment.branch] || [];
@@ -988,7 +1005,13 @@ async function applyDiscountToAllItems(discountValue, isPercent) {
         }
     });
 
-    // salesHistory تغییر نمی‌کند
+    try {
+        await fetch(`/api/branch-inventory/price/${encodeURIComponent(item.name)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selling_price: itemDiscounts[item.name].newPrice })
+        });
+    } catch(err) {}
 
     saveData();
 
@@ -1158,3 +1181,8 @@ window.formatMoney = function(amount) {
     }
     return 'AFG ' + numAmount.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
 };
+
+// git status
+// git add .
+// git commit -m "Describe your changes"
+// git push origin main
