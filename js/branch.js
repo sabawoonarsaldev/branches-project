@@ -368,13 +368,14 @@ async function renderBranchBilling() {
             <div class="form-group" style="width:100%;"><label><i class="fas fa-receipt"></i> Select Bill Number</label>
                 <select id="billNumberSelect" onchange="loadBillDetails()" style="width:100%;padding:12px;">
                     <option value="">-- Select a bill number --</option>
+                   
                     ${billNumbers.map(bill => {
-                        let billDate = bills[bill][0]?.date || 'Unknown date';
-                        let totalPrice = bills[bill].reduce((sum, item) => sum + item.revenue, 0);
-                        let customerN = bills[bill][0]?.customerName || '';
-                        let displayLabel = customerN ? `${bill} - ${customerN}` : bill;
-                        return `<option value="${bill}">${displayLabel} - ${formatMoney(totalPrice)} (${billDate})</option>`;
-                    }).join('')}
+                    let billDate = bills[bill][0]?.date || 'Unknown date';
+                    let totalPrice = bills[bill].reduce((sum, item) => sum + item.revenue, 0);
+                    let customerN = bills[bill][0]?.customerName || '';
+                    let displayLabel = customerN ? `${bill} - ${customerN}` : bill;
+                    return `<option value="${bill}">${displayLabel} - ${formatMoney(totalPrice)} (${billDate})</option>`;
+                }).join('')}
                 </select>
             </div>
             <button class="btn-filter" onclick="loadBillDetails()" style="margin-top:10px;width:200px;"><i class="fas fa-search"></i> Load Bill</button>
@@ -402,39 +403,63 @@ function loadBillDetails() {
 
     let totalItems = billItems.reduce((sum, item) => sum + item.qty, 0);
     let totalPrice = billItems.reduce((sum, item) => sum + item.revenue, 0);
+    let customerName = billItems[0]?.customerName || '-';
+    let billDate = billItems[0]?.date || '-';
 
     document.getElementById('billDetailsContainer').style.display = 'block';
     document.getElementById('billDetailsContainer').innerHTML = `
         <div class="payment-summary" style="margin-bottom:20px;">
             <h3><i class="fas fa-receipt"></i> Bill Details: ${billNumber}</h3>
             <div class="summary-stats">
+                <div class="summary-item"><div class="label">Bill Number</div><div class="value">${billNumber}</div></div>
+                <div class="summary-item"><div class="label">Customer Name</div><div class="value" style="color:#166534;font-weight:600;">${customerName}</div></div>
                 <div class="summary-item"><div class="label">Total Items</div><div class="value">${totalItems}</div></div>
                 <div class="summary-item"><div class="label">Total Price</div><div class="value" style="color:#22c55e;">${formatMoney(totalPrice)}</div></div>
-                <div class="summary-item"><div class="label">Number of Products</div><div class="value">${billItems.length}</div></div>
-                <div class="summary-item"><div class="label">Date</div><div class="value">${billItems[0]?.date || '-'}</div></div>
+                <div class="summary-item"><div class="label">Date</div><div class="value">${billDate}</div></div>
             </div>
         </div>
         <div class="table-wrapper"><table>
             <thead><tr><th>Item Name</th><th>Quantity</th><th>Selling Price</th><th>Total Price</th></tr></thead>
-            <tbody>${billItems.map(item => `<tr><td>${escapeHtml(item.item)}</td><td>${item.qty}</td><td>${formatMoney(item.price)}</td><td class="total-value">${formatMoney(item.revenue)}</td></tr>`).join('')}</tbody>
-            <tfoot><tr class="grand-total"><td colspan="2"><strong>Grand Total</strong></td><td><strong>${formatMoney(totalPrice)}</strong></td><td></td></tr></tfoot>
+            <tbody>${billItems.map(item => `
+                <tr>
+                    <td>${escapeHtml(item.item)}</td>
+                    <td>${item.qty}</td>
+                    <td>${formatMoney(item.price)}</td>
+                    <td class="total-value">${formatMoney(item.revenue)}</td>
+                </tr>`).join('')}
+            </tbody>
+            <tfoot><tr class="grand-total">
+                <td colspan="2"><strong>Grand Total</strong></td>
+                <td><strong>${formatMoney(totalPrice)}</strong></td>
+                <td></td>
+            </tr></tfoot>
         </table></div>
         <div style="text-align:center;margin-top:20px;">
-            <button class="action-btn" onclick="printBill('${billNumber}')"><i class="fas fa-print"></i> Print Bill</button>
+            <button class="action-btn" onclick="printBill('${billNumber}')">
+                <i class="fas fa-print"></i> Print Bill
+            </button>
         </div>`;
 }
+
 
 function printBill(billNumber) {
     let branch = currentUser.username;
     let bills = branchBills[branch] || {};
     let billItems = bills[billNumber] || [];
-    let customerName = prompt('Enter Customer Name:');
-    if (!customerName) { alert('Customer name is required!'); return; }
+    
+    // نام مشتری از bill items بگیر - نپرس
+    let customerName = billItems[0]?.customerName || '';
+    if (!customerName) {
+        customerName = prompt('Enter Customer Name:') || 'Unknown';
+    }
+    
+    // فقط phone بپرس
     let customerPhone = prompt('Enter Customer Phone Number:');
     if (!customerPhone) { alert('Customer phone number is required!'); return; }
 
     let totalItems = billItems.reduce((sum, item) => sum + item.qty, 0);
     let totalPrice = billItems.reduce((sum, item) => sum + item.revenue, 0);
+    let billDate = billItems[0]?.date || getTodayDate();
 
     let printWindow = window.open('', '_blank');
     printWindow.document.write(`<html><head><title>Invoice - ${billNumber}</title><style>
@@ -453,20 +478,37 @@ function printBill(billNumber) {
         @media print{body{background:white;padding:0;}.invoice-print{box-shadow:none;border-radius:0;}.no-print{display:none!important;}}
     </style></head><body>
         <div class="invoice-print">
-            <div class="invoice-header"><h2>Haqyar Mangal Trading Company</h2><h3>Sales Invoice</h3><p style="margin-top:5px;color:#d1fae5;">${branch} Branch</p></div>
+            <div class="invoice-header">
+                <h2>Haqyar Mangal Trading Company</h2>
+                <h3>Sales Invoice</h3>
+                <p style="margin-top:5px;color:#d1fae5;">${branch} Branch</p>
+            </div>
             <div class="invoice-info">
                 <div class="invoice-info-item"><div class="label">Bill Number</div><div class="value">${billNumber}</div></div>
                 <div class="invoice-info-item"><div class="label">Customer Name</div><div class="value">${escapeHtml(customerName)}</div></div>
                 <div class="invoice-info-item"><div class="label">Customer Phone</div><div class="value">${escapeHtml(customerPhone)}</div></div>
-                <div class="invoice-info-item"><div class="label">Date</div><div class="value">${new Date().toLocaleString()}</div></div>
+                <div class="invoice-info-item"><div class="label">Date</div><div class="value">${billDate}</div></div>
             </div>
             <table class="invoice-table">
                 <thead><tr><th>Item Name</th><th>Quantity</th><th>Price per Unit</th><th>Total Price</th></tr></thead>
-                <tbody>${billItems.map(item => `<tr><td>${escapeHtml(item.item)}</td><td>${item.qty}</td><td>${formatMoney(item.price)}</td><td class="total-value">${formatMoney(item.revenue)}</td></tr>`).join('')}</tbody>
-                <tfoot><tr><td colspan="3"><strong>Total Items: ${totalItems}</strong></td><td><strong>${formatMoney(totalPrice)}</strong></td></tr></tfoot>
+                <tbody>${billItems.map(item => `
+                    <tr>
+                        <td>${escapeHtml(item.item)}</td>
+                        <td>${item.qty}</td>
+                        <td>${formatMoney(item.price)}</td>
+                        <td class="total-value">${formatMoney(item.revenue)}</td>
+                    </tr>`).join('')}
+                </tbody>
+                <tfoot><tr>
+                    <td colspan="3"><strong>Total Items: ${totalItems}</strong></td>
+                    <td><strong>${formatMoney(totalPrice)}</strong></td>
+                </tr></tfoot>
             </table>
             <div class="invoice-total">Grand Total: ${formatMoney(totalPrice)}</div>
-            <div class="invoice-footer"><p>Generated by ${branch} Branch</p><p>Thank you for your purchase!</p></div>
+            <div class="invoice-footer">
+                <p>Generated by ${branch} Branch</p>
+                <p>Thank you for your purchase!</p>
+            </div>
         </div>
         <div class="no-print" style="text-align:center;margin-top:20px;">
             <button onclick="window.print()" style="padding:12px 24px;background:linear-gradient(145deg,#22c55e,#16a34a);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;margin-right:10px;">Print</button>
@@ -475,6 +517,7 @@ function printBill(billNumber) {
     </body></html>`);
     printWindow.document.close();
 }
+
 
 // ==================== BRANCH EXPENSES ====================
 async function renderBranchExpenses() {

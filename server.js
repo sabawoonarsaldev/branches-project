@@ -45,7 +45,7 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// // Local development
+// Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
@@ -97,14 +97,16 @@ app.use(cors({
 app.use(express.json());
 
 // ============= INVENTORY API =============
+
 app.get('/api/inventory', async (req, res) => {
     try {
-        const [rows] = await pool.execute('SELECT * FROM main_inventory ORDER BY id');
+        const [rows] = await pool.execute('SELECT * FROM main_inventory ORDER BY date DESC, id DESC');
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
+
 
 app.post('/api/inventory', async (req, res) => {
     const { name, purchase_price, selling_price, quantity, supplier, date } = req.body;
@@ -1028,29 +1030,22 @@ app.delete('/api/alerts/:id', async (req, res) => {
 });
 
 // ============= BRANCH RETURNS API =============
+
 app.get('/api/returns/mainclient/:mainClient', async (req, res) => {
-    const { mainClient } = req.params;
     try {
-        const [rows] = await pool.execute('SELECT * FROM branch_returns ORDER BY date DESC');
+        const [rows] = await pool.execute('SELECT * FROM branch_returns ORDER BY date DESC, id DESC');
         res.json(rows);
-    } catch (err) {
-        console.error('Error in GET /api/returns/mainclient:', err);
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/returns/branch/:branch', async (req, res) => {
     const { branch } = req.params;
     try {
         const [rows] = await pool.execute(
-            'SELECT * FROM branch_returns WHERE branch = ? ORDER BY date DESC',
-            [branch]
+            'SELECT * FROM branch_returns WHERE branch = ? ORDER BY date DESC, id DESC', [branch]
         );
         res.json(rows);
-    } catch (err) {
-        console.error('Error in GET /api/returns/branch:', err);
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/returns', async (req, res) => {
@@ -1178,25 +1173,45 @@ app.delete('/api/sales/:id', async (req, res) => {
 });
 
 // ============= INVOICES API =============
+
 app.post('/api/invoices', async (req, res) => {
     const { number, main_client, branch, date, total_items, total_value,
         all_time_total_items, all_time_total_value, all_time_paid, all_time_unpaid, items } = req.body;
     try {
+        // date را clean کن - فقط اول تاریخ را بگیر
+        let cleanDate = date;
+        if (date && date.includes(' to ')) {
+            cleanDate = date.split(' to ')[0];
+        }
+        if (cleanDate && cleanDate.includes('T')) {
+            cleanDate = cleanDate.split('T')[0];
+        }
+
         const [invoiceResult] = await pool.execute(
             `INSERT INTO invoices (number, main_client, branch, date, total_items, total_value, 
              all_time_total_items, all_time_total_value, all_time_paid, all_time_unpaid) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [number, main_client, branch, date, total_items, total_value,
-                all_time_total_items, all_time_total_value, all_time_paid, all_time_unpaid]
+            [number, main_client, branch, cleanDate,
+             total_items, total_value,
+             all_time_total_items, all_time_total_value, all_time_paid, all_time_unpaid]
         );
 
         const invoiceId = invoiceResult.insertId;
-        for (const item of items) {
-            await pool.execute(
-                `INSERT INTO invoice_items (invoice_id, item_name, quantity, selling_price, total_price, date) 
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [invoiceId, item.item, item.qty, item.sellingPrice, item.sellingPrice * item.qty, item.date]
-            );
+        if (items && items.length > 0) {
+            for (const item of items) {
+                let itemDate = item.date || cleanDate;
+                if (itemDate && itemDate.includes('T')) itemDate = itemDate.split('T')[0];
+                if (itemDate && itemDate.includes(' to ')) itemDate = itemDate.split(' to ')[0];
+                
+                await pool.execute(
+                    `INSERT INTO invoice_items (invoice_id, item_name, quantity, selling_price, total_price, date) 
+                     VALUES (?, ?, ?, ?, ?, ?)`,
+                    [invoiceId, item.item || item.item_name, item.qty || item.quantity,
+                     item.sellingPrice || item.selling_price,
+                     (item.sellingPrice || item.selling_price) * (item.qty || item.quantity),
+                     itemDate]
+                );
+            }
         }
 
         const [rows] = await pool.execute('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
@@ -1206,6 +1221,7 @@ app.post('/api/invoices', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
 
 app.get('/api/invoices/admin', async (req, res) => {
     try {

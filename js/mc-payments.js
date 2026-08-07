@@ -278,7 +278,28 @@ async function renderMainClientBilling() {
                 <div class="filter-group"><label><i class="fas fa-code-branch"></i> Select Branch</label>
                     <select id="billingBranchSelect"><option value="">-- Choose a branch --</option>${branches.map(b => `<option value="${b.username}">${b.username} Branch</option>`).join('')}</select>
                 </div>
-                <div class="filter-group"><label><i class="fas fa-calendar"></i> Select Date</label><input type="date" id="billingDate" value="${today}"></div>
+                <div class="filter-group">
+    <label><i class="fas fa-calendar-alt"></i> Time Period</label>
+    <select id="billingTimePeriod" onchange="toggleBillingDateInput()" style="padding:10px;border:2px solid #e2e8f0;border-radius:8px;width:100%;">
+        <option value="date">By Date</option>
+        <option value="daily">Daily (Today)</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="custom">Custom Range</option>
+    </select>
+</div>
+<div class="filter-group" id="billingDateGroup">
+    <label><i class="fas fa-calendar"></i> Select Date</label>
+    <input type="date" id="billingDate" value="${today}">
+</div>
+<div class="filter-group" id="billingCustomRange" style="display:none;">
+    <label><i class="fas fa-calendar-alt"></i> Date Range</label>
+    <div style="display:flex;gap:8px;align-items:center;">
+        <input type="date" id="billingStartDate" value="${getWeekAgoDate()}" style="padding:8px;border:2px solid #e2e8f0;border-radius:8px;">
+        <span>to</span>
+        <input type="date" id="billingEndDate" value="${today}" style="padding:8px;border:2px solid #e2e8f0;border-radius:8px;">
+    </div>
+</div>
                 <div class="filter-group"><label>&nbsp;</label><button class="btn-view" onclick="loadBillingData()" style="width:100%;"><i class="fas fa-search"></i> Load Data</button></div>
             </div>
         </div>
@@ -287,54 +308,128 @@ async function renderMainClientBilling() {
 
 window.loadBillingData = async function () {
     let branch = document.getElementById('billingBranchSelect').value;
-    let dateInput = document.getElementById('billingDate').value || getTodayDate();
     if (!branch) { alert('Please select a branch'); return; }
-    let selectedDate = formatDateForCompare(dateInput);
+    
+    let period = document.getElementById('billingTimePeriod')?.value || 'date';
+    let today = getTodayDate();
+    let now = new Date();
+    let startDate, endDate;
+
+    if (period === 'date') {
+        let dateInput = document.getElementById('billingDate')?.value || today;
+        startDate = dateInput;
+        endDate = dateInput;
+    } else if (period === 'daily') {
+        startDate = today;
+        endDate = today;
+    } else if (period === 'weekly') {
+        let start = new Date(now);
+        start.setDate(now.getDate() - 7);
+        startDate = start.toISOString().split('T')[0];
+        endDate = today;
+    } else if (period === 'monthly') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+        endDate = today;
+    } else if (period === 'custom') {
+        startDate = document.getElementById('billingStartDate')?.value;
+        endDate = document.getElementById('billingEndDate')?.value;
+        if (!startDate || !endDate) { alert('Please select date range'); return; }
+    }
+
     await refreshDataFromServer();
 
-    let dailyShipments = mainClientToBranchShipments.filter(s => {
+    let filteredShipments = mainClientToBranchShipments.filter(s => {
         let shipmentDate = formatDateForCompare(s.date);
-        return s.branch === branch && shipmentDate === selectedDate;
+        if (s.branch !== branch) return false;
+        if (startDate === endDate) return shipmentDate === startDate;
+        return shipmentDate >= startDate && shipmentDate <= endDate;
     });
 
-    let totalItems = dailyShipments.reduce((sum, s) => sum + s.qty, 0);
-    let totalValue = dailyShipments.reduce((sum, s) => sum + (s.sellingPrice * s.qty), 0);
+    let totalItems = filteredShipments.reduce((sum, s) => sum + s.qty, 0);
+    let totalValue = filteredShipments.reduce((sum, s) => sum + (s.sellingPrice * s.qty), 0);
 
-    let html = `<div id="billingDataContainer">
-        <div class="branch-inventory-header"><h3><i class="fas fa-truck"></i> Shipments Report</h3><h4 style="color:#166534;margin-top:10px;">Branch: ${branch} | Date: ${selectedDate}</h4></div>
-        ${dailyShipments.length === 0
-            ? `<div class="empty-state"><i class="fas fa-box-open"></i><h3>No Shipments Found</h3><p>No items were sent to ${branch} on ${selectedDate}.</p></div>`
-            : `<div class="table-wrapper"><table class="report-table"><thead><tr><th>Item Name</th><th>Date</th><th>Quantity</th><th>Selling Price/Unit</th><th>Total Price</th></tr></thead>
-               <tbody>${dailyShipments.map(s => `<tr><td>${escapeHtml(s.item)}</td><td>${s.date}</td><td>${s.qty}</td><td>${formatMoney(s.sellingPrice)}</td><td class="total-value">${formatMoney(s.sellingPrice * s.qty)}</td></tr>`).join('')}</tbody>
+    let periodLabel = period === 'date' ? startDate :
+                      period === 'daily' ? `Today (${today})` :
+                      period === 'weekly' ? `${startDate} to ${endDate}` :
+                      period === 'monthly' ? `${startDate} to ${endDate}` :
+                      `${startDate} to ${endDate}`;
+
+    let html = `
+        <div class="branch-inventory-header">
+            <h3><i class="fas fa-truck"></i> Shipments Report</h3>
+            <h4 style="color:#166534;margin-top:10px;">Branch: ${branch} | Period: ${periodLabel}</h4>
+        </div>
+        ${filteredShipments.length === 0
+            ? `<div class="empty-state"><i class="fas fa-box-open"></i><h3>No Shipments Found</h3><p>No items were sent to ${branch} in this period.</p></div>`
+            : `<div class="table-wrapper"><table class="report-table">
+                <thead><tr><th>Item Name</th><th>Date</th><th>Quantity</th><th>Selling Price/Unit</th><th>Total Price</th></tr></thead>
+                <tbody>${filteredShipments.sort((a,b) => new Date(b.date)-new Date(a.date)).map(s => 
+                    `<tr><td>${escapeHtml(s.item)}</td><td>${s.date}</td><td>${s.qty}</td><td>${formatMoney(s.sellingPrice)}</td><td class="total-value">${formatMoney(s.sellingPrice * s.qty)}</td></tr>`
+                ).join('')}</tbody>
                </table></div>`
         }
-        <div class="summary-box"><h3 style="margin-bottom:20px;color:#166534;">Summary</h3>
+        <div class="summary-box">
+            <h3 style="margin-bottom:20px;color:#166534;">Summary</h3>
             <div class="summary-row"><span class="summary-label">Total Items Shipped:</span><span class="summary-value">${totalItems}</span></div>
-            <div class="summary-row"><span class="summary-label">Total Value (Selling Price):</span><span class="summary-value">${formatMoney(totalValue)}</span></div>
-            <div class="summary-row"><span class="summary-label">Number of Shipments:</span><span class="summary-value">${dailyShipments.length}</span></div>
+            <div class="summary-row"><span class="summary-label">Total Value:</span><span class="summary-value">${formatMoney(totalValue)}</span></div>
+            <div class="summary-row"><span class="summary-label">Number of Shipments:</span><span class="summary-value">${filteredShipments.length}</span></div>
         </div>
-        ${dailyShipments.length > 0 ? `<div style="text-align:right;margin-top:20px;"><button class="action-btn" onclick="showInvoiceNumberModal('${branch}','${selectedDate}')"><i class="fas fa-file-invoice"></i> Generate Bill</button></div>` : ''}
-    </div>`;
+        ${filteredShipments.length > 0 ? `
+            <div style="text-align:right;margin-top:20px;">
+                <button class="action-btn" onclick="showInvoiceNumberModal('${branch}','${startDate}','${endDate}')">
+                    <i class="fas fa-file-invoice"></i> Generate Bill
+                </button>
+            </div>` : ''}`;
 
     document.getElementById('billingDataContainer').style.display = 'block';
     document.getElementById('billingDataContainer').innerHTML = html;
 };
 
-window.showInvoiceNumberModal = function (branch, date) {
+
+window.toggleBillingDateInput = function() {
+    let period = document.getElementById('billingTimePeriod')?.value || 'date';
+    let dateGroup = document.getElementById('billingDateGroup');
+    let customRange = document.getElementById('billingCustomRange');
+    
+    if (period === 'custom') {
+        if (dateGroup) dateGroup.style.display = 'none';
+        if (customRange) customRange.style.display = 'block';
+    } else if (period === 'date') {
+        if (dateGroup) dateGroup.style.display = 'block';
+        if (customRange) customRange.style.display = 'none';
+    } else {
+        if (dateGroup) dateGroup.style.display = 'none';
+        if (customRange) customRange.style.display = 'none';
+    }
+};
+
+window.showInvoiceNumberModal = function (branch, startDate, endDate) {
     document.getElementById('modalContent').innerHTML = `
         <div class="modal-header"><h3>Enter Invoice Number</h3><button onclick="closeModal()">&times;</button></div>
-        <div class="form-group"><label>Invoice Number</label><input type="text" id="invoiceNumberInput" value="INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}"></div>
+        <div class="form-group"><label>Invoice Number</label>
+            <input type="text" id="invoiceNumberInput" value="INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}">
+        </div>
         <div class="form-group"><label>Branch</label><input type="text" value="${branch} Branch" readonly></div>
-        <div class="form-group"><label>Date</label><input type="text" value="${date}" readonly></div>
-        <button class="save-btn" onclick="generateInvoice('${branch}','${date}')"><i class="fas fa-print"></i> Generate & Print Invoice</button>`;
+        <div class="form-group"><label>Period</label><input type="text" value="${startDate === endDate ? startDate : startDate + ' to ' + endDate}" readonly></div>
+        <button class="save-btn" onclick="generateInvoice('${branch}','${startDate}','${endDate}')">
+            <i class="fas fa-print"></i> Generate & Print Invoice
+        </button>`;
     document.getElementById('modal').classList.add('active');
 };
 
-window.generateInvoice = async function (branch, date) {
+window.generateInvoice = async function (branch, startDate, endDate) {
     let invoiceNumber = document.getElementById('invoiceNumberInput').value;
     if (!invoiceNumber.trim()) { alert('Please enter an invoice number'); return; }
+    
     let mainClient = currentUser.username;
-    let dailyShipments = mainClientToBranchShipments.filter(s => s.branch === branch && s.date === date);
+    
+    let dailyShipments = mainClientToBranchShipments.filter(s => {
+        let d = formatDateForCompare(s.date);
+        if (s.branch !== branch) return false;
+        if (startDate === endDate) return d === startDate;
+        return d >= startDate && d <= endDate;
+    });
+
     let totalItems = dailyShipments.reduce((sum, s) => sum + s.qty, 0);
     let totalValue = dailyShipments.reduce((sum, s) => sum + (s.sellingPrice * s.qty), 0);
     let allTimeShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
@@ -344,13 +439,24 @@ window.generateInvoice = async function (branch, date) {
     let allTimeUnpaid = allTimeTotalValue - allTimePaid;
 
     try {
-        const response = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number: invoiceNumber, main_client: mainClient, branch, date, total_items: totalItems, total_value: totalValue, all_time_total_items: allTimeTotalItems, all_time_total_value: allTimeTotalValue, all_time_paid: allTimePaid, all_time_unpaid: allTimeUnpaid, items: dailyShipments }) });
+        const response = await fetch('/api/invoices', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                number: invoiceNumber, main_client: mainClient, branch,
+                date: startDate === endDate ? startDate : `${startDate} to ${endDate}`,
+                total_items: totalItems, total_value: totalValue,
+                all_time_total_items: allTimeTotalItems, all_time_total_value: allTimeTotalValue,
+                all_time_paid: allTimePaid, all_time_unpaid: allTimeUnpaid,
+                items: dailyShipments
+            })
+        });
         if (!response.ok) throw new Error('Failed to save invoice');
-        invoices.push({ number: invoiceNumber, mainClient, branch, date, shipments: dailyShipments, totalItems, totalValue, createdAt: new Date().toISOString() });
-        showInvoicePrint(invoiceNumber, mainClient, branch, date, dailyShipments, totalItems, totalValue, allTimeTotalItems, allTimeTotalValue, allTimePaid, allTimeUnpaid);
+        invoices.push({ number: invoiceNumber, mainClient, branch, date: startDate, shipments: dailyShipments, totalItems, totalValue, createdAt: new Date().toISOString() });
+        showInvoicePrint(invoiceNumber, mainClient, branch, startDate === endDate ? startDate : `${startDate} to ${endDate}`, dailyShipments, totalItems, totalValue, allTimeTotalItems, allTimeTotalValue, allTimePaid, allTimeUnpaid);
         closeModal();
     } catch (error) { alert('Failed to save invoice: ' + error.message); }
 };
+
 
 function showInvoicePrint(invoiceNumber, mainClient, branch, date, shipments, totalItems, totalValue, allTimeTotalItems, allTimeTotalValue, allTimePaid, allTimeUnpaid) {
     document.getElementById('invoiceModalContent').innerHTML = `

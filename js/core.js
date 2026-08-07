@@ -477,26 +477,44 @@ function calculateTotalPurchaseValue() {
 
 function calculateTotalSaleValue() {
     let total = 0;
-    for (let i = 0; i < mainInventory.length; i++) {
-        const item = mainInventory[i];
-        total += (parseFloat(item.sellingPrice) || parseFloat(item.selling_price) || 0) * (parseInt(item.quantity) || 0);
+    for (let item of mainInventory) {
+        let currentPrice = parseFloat(item.sellingPrice) || 0;
+        let quantity = parseInt(item.quantity) || 0;
+        let discount = getItemDiscount(item.name);
+        let originalPrice = discount ? discount.originalPrice : currentPrice;
+
+        let soldQty = salesHistory.filter(s => s.item === item.name).reduce((sum, s) => sum + s.qty, 0);
+        let remainingQty = quantity - soldQty;
+        if (remainingQty < 0) remainingQty = 0;
+        if (soldQty > quantity) soldQty = quantity;
+
+        total += (soldQty * originalPrice) + (remainingQty * currentPrice);
     }
     return total;
 }
 
+
 function recalcMainFinance() {
     let totalPurchase = 0, totalSale = 0, totalExpenses = 0;
-    for (let i = 0; i < mainInventory.length; i++) {
-        const item = mainInventory[i];
-        const qty = parseFloat(item.quantity) || 0;
-        totalPurchase += (parseFloat(item.purchase_price) || parseFloat(item.purchasePrice) || 0) * qty;
-        totalSale += (parseFloat(item.selling_price) || parseFloat(item.sellingPrice) || 0) * qty;
+    for (let item of mainInventory) {
+        const qty = parseInt(item.quantity) || 0;
+        const purchasePrice = parseFloat(item.purchase_price) || parseFloat(item.purchasePrice) || 0;
+        totalPurchase += purchasePrice * qty;
+
+        // sale value با discount logic
+        let currentPrice = parseFloat(item.selling_price) || parseFloat(item.sellingPrice) || 0;
+        let discount = getItemDiscount(item.name);
+        let originalPrice = discount ? discount.originalPrice : currentPrice;
+        let soldQty = salesHistory.filter(s => s.item === item.name).reduce((sum, s) => sum + s.qty, 0);
+        let remainingQty = Math.max(0, qty - soldQty);
+        let actualSoldQty = Math.min(soldQty, qty);
+        totalSale += (actualSoldQty * originalPrice) + (remainingQty * currentPrice);
     }
-    for (let i = 0; i < expenses.length; i++) totalExpenses += parseFloat(expenses[i].amount) || 0;
+    for (let exp of expenses) totalExpenses += parseFloat(exp.amount) || 0;
     for (const client in mainClientExpenses) {
         if (Array.isArray(mainClientExpenses[client]))
-            for (let i = 0; i < mainClientExpenses[client].length; i++)
-                totalExpenses += parseFloat(mainClientExpenses[client][i].amount) || 0;
+            for (let exp of mainClientExpenses[client])
+                totalExpenses += parseFloat(exp.amount) || 0;
     }
     mainFinance.totalPurchase = totalPurchase;
     mainFinance.totalSale = totalSale;
@@ -1062,6 +1080,8 @@ function deleteItemFromAllLocations(itemId, itemName) {
     dailyPayments = data.dailyPayments; billPayments = data.billPayments; branchBills = data.branchBills;
     shipmentPayments = data.shipmentPayments || {};
     console.log('Initialization complete. Users:', users.length, 'Inventory:', mainInventory.length);
+    loadExchangeRate();
+    setInterval(loadExchangeRate, 30 * 60 * 1000);
 })();
 
 
@@ -1072,3 +1092,69 @@ function sortByDateDesc(arr, dateField = 'date') {
         return db - da;
     });
 }
+
+// ==================== CURRENCY ====================
+let currentCurrency = 'AFG';
+let usdToAfgRate = 70; 
+
+async function loadExchangeRate() {
+    try {
+        const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.rates && data.rates.AFN) {
+                usdToAfgRate = data.rates.AFN;
+                let rateDisplay = document.getElementById('currencyRateDisplay');
+                if (rateDisplay) {
+                    rateDisplay.textContent = `1 USD = ${usdToAfgRate.toFixed(1)} AFG`;
+                }
+                console.log(`Exchange rate loaded: 1 USD = ${usdToAfgRate} AFN`);
+            }
+        }
+    } catch (err) {
+        console.log('Exchange rate API failed, using default:', usdToAfgRate);
+        try {
+            const res2 = await fetch('https://open.er-api.com/v6/latest/USD');
+            if (res2.ok) {
+                const data2 = await res2.json();
+                if (data2.rates && data2.rates.AFN) {
+                    usdToAfgRate = data2.rates.AFN;
+                    let rateDisplay = document.getElementById('currencyRateDisplay');
+                    if (rateDisplay) rateDisplay.textContent = `1 USD = ${usdToAfgRate.toFixed(1)} AFG`;
+                }
+            }
+        } catch(err2) { console.log('Both APIs failed, using default rate'); }
+    }
+}
+
+window.toggleCurrency = function() {
+    currentCurrency = currentCurrency === 'AFG' ? 'USD' : 'AFG';
+    let btn = document.getElementById('currencyBtn');
+    if (btn) {
+        if (currentCurrency === 'USD') {
+            btn.innerHTML = '<i class="fas fa-money-bill-wave"></i> AFG';
+            btn.style.background = '#166534';
+            btn.style.color = 'white';
+        } else {
+            btn.innerHTML = '<i class="fas fa-dollar-sign"></i> USD';
+            btn.style.background = 'white';
+            btn.style.color = '#166534';
+        }
+    }
+    if (currentUser) refreshCurrentSection();
+};
+
+const _originalFormatMoney = formatMoney;
+window.formatMoney = function(amount) {
+    if (amount === undefined || amount === null || isNaN(amount)) {
+        return currentCurrency === 'USD' ? '$ 0.00' : 'AFG 0.00';
+    }
+    let numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+    if (isNaN(numAmount)) return currentCurrency === 'USD' ? '$ 0.00' : 'AFG 0.00';
+
+    if (currentCurrency === 'USD') {
+        let usdAmount = numAmount / usdToAfgRate;
+        return '$ ' + usdAmount.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
+    }
+    return 'AFG ' + numAmount.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
+};

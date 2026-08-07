@@ -2,6 +2,17 @@
 // inventory، finance، expenses، reports، totalAmount
 // ==================== ADMIN INVENTORY ====================
 function renderInventory() {
+    let correctTotalSaleValue = 0;
+    for (let item of mainInventory) {
+        let currentPrice = parseFloat(item.sellingPrice) || 0;
+        let qty = parseInt(item.quantity) || 0;
+        let discount = getItemDiscount(item.name);
+        let originalPrice = discount ? discount.originalPrice : currentPrice;
+        let soldQty = salesHistory.filter(s => s.item === item.name).reduce((sum, s) => sum + s.qty, 0);
+        let remainingQty = Math.max(0, qty - soldQty);
+        let actualSoldQty = Math.min(soldQty, qty);
+        correctTotalSaleValue += (actualSoldQty * originalPrice) + (remainingQty * currentPrice);
+    }
     let totalPurchaseValue = 0, totalSaleValue = 0;
     for (let i = 0; i < mainInventory.length; i++) {
         const item = mainInventory[i];
@@ -26,8 +37,8 @@ function renderInventory() {
             <div class="stat-card">
                 <i class="fas fa-tags"></i>
                 <h4>Total Inventory Value (Sale)</h4>
-                <div class="stat-value total-value">${formatMoney(totalSaleValue)}</div>
-            </div>
+         <div class="stat-value total-value">${formatMoney(correctTotalSaleValue)}</div>
+                </div>
         </div>
         <div class="search-container">
             <div class="search-box">
@@ -59,9 +70,9 @@ function renderInventory() {
                         <tr class="grand-total">
                             <td colspan="7"><strong>Grand Total</strong></td><td></td>
                             <td><strong>${formatMoney(totalPurchaseValue)}</strong></td>
-                            <td><strong>${formatMoney(totalSaleValue)}</strong></td>
                             <td colspan="2"></td>
-                        </tr>
+                            <td><strong>${formatMoney(correctTotalSaleValue)}</strong></td>
+                            </tr>
                     </tfoot>
                 </table>
             </div>`;
@@ -74,21 +85,36 @@ function renderInventoryRows(items) {
     items = [...items].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
     return items.map((item, index) => {
         const purchasePrice = parseFloat(item.purchasePrice) || parseFloat(item.purchase_price) || 0;
-        const sellingPrice = parseFloat(item.sellingPrice) || parseFloat(item.selling_price) || 0;
+        const currentSellingPrice = parseFloat(item.sellingPrice) || parseFloat(item.selling_price) || 0;
         const quantity = parseInt(item.quantity) || 0;
         let discount = getItemDiscount(item.name);
         let discountHtml = discount ? `<span class="discount-badge">-${discount.discountPercent}%</span>` : '-';
         let remainderInMainClients = calculateRemainingStockInMainClients(item.name);
+
+        let totalDistributed = mainClientDistributed[item.name] || 0;
+        let branchSoldQty = salesHistory.filter(s => s.item === item.name).reduce((sum, s) => sum + s.qty, 0);
+        let originalPrice = discount ? discount.originalPrice : currentSellingPrice;
+        
+        let remainingInMainClient = Math.max(0, quantity - totalDistributed);
+        let remainingInBranches = totalDistributed - branchSoldQty;
+        if (remainingInBranches < 0) remainingInBranches = 0;
+        let soldQty = branchSoldQty;
+
+        // total value = (sold × original price) + (remaining × current price)
+        let correctTotalSaleValue = (soldQty * originalPrice) + 
+                                    (remainingInMainClient * currentSellingPrice) + 
+                                    (remainingInBranches * currentSellingPrice);
+
         return `
             <tr>
                 <td>${item.id}</td><td>${item.date || '-'}</td>
                 <td>${escapeHtml(item.name)}</td>
                 <td>${formatMoney(purchasePrice)}</td>
-                <td>${renderPriceWithDiscount(discount ? discount.originalPrice : sellingPrice, sellingPrice, item.name)}</td>
+                <td>${renderPriceWithDiscount(discount ? discount.originalPrice : currentSellingPrice, currentSellingPrice, item.name)}</td>
                 <td>${discountHtml}</td><td>${quantity}</td>
                 <td class="remainder-stock" style="background:#fef3c7;font-weight:bold;">${remainderInMainClients}</td>
                 <td class="total-value">${formatMoney(purchasePrice * quantity)}</td>
-                <td class="total-value">${formatMoney(sellingPrice * quantity)}</td>
+                <td class="total-value">${formatMoney(correctTotalSaleValue)}</td>
                 <td>${escapeHtml(item.supplier) || '-'}</td>
                 <td>
                     <button class="btn btn-edit" onclick="editItem(${item.id})"><i class="fas fa-edit"></i> Edit</button>
@@ -97,6 +123,7 @@ function renderInventoryRows(items) {
             </tr>`;
     }).join('');
 }
+
 
 window.searchInventory = function () {
     let searchTerm = document.getElementById('searchInput').value.toLowerCase();
