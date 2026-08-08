@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require("fs")
 const compression = require("compression");
 require('dotenv').config();
+const bcrypt = require('bcrypt');
+const SALT_ROUNDS = 10;
 
 // // Fix MySQL timezone issue
 // const pool = mysql.createPool({
@@ -26,35 +28,35 @@ require('dotenv').config();
 
 // // MySQL connection pool (Aiven / production ready)
 
-// const ca_path = process.env.CA || '/etc/secrets/ca.pem';
-// const pool = mysql.createPool({
-//     host: process.env.DB_HOST,
-//     user: process.env.DB_USER,
-//     password: process.env.DB_PASSWORD,
-//     database: process.env.DB_NAME,
-//     port: process.env.DB_PORT,
-
-//     waitForConnections: true,
-//     connectionLimit: 10,
-
-//     ssl: {
-//         ca: fs.readFileSync(ca_path),
-//         rejectUnauthorized: true
-//     },
-
-//     timezone: '+00:00'
-// });
-
-// Local development
+const ca_path = process.env.CA || '/etc/secrets/ca.pem';
 const pool = mysql.createPool({
-    host: 'localhost',
-    user: 'root',
-    password: 'arsal123',  
-    database: 'branchflow_db',
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT,
+
     waitForConnections: true,
     connectionLimit: 10,
+
+    ssl: {
+        ca: fs.readFileSync(ca_path),
+        rejectUnauthorized: true
+    },
+
     timezone: '+00:00'
 });
+
+// Local development
+// const pool = mysql.createPool({
+//     host: 'localhost',
+//     user: 'root',
+//     password: 'arsal123',  
+//     database: 'branchflow_db',
+//     waitForConnections: true,
+//     connectionLimit: 10,
+//     timezone: '+00:00'
+// });
 
 
 pool.getConnection()
@@ -242,6 +244,7 @@ app.post('/api/main-client-distributed', async (req, res) => {
 });
 
 // ============= USER MANAGEMENT API =============
+
 app.post('/api/users', async (req, res) => {
     const { username, password, role, frozen, blocked, deleted } = req.body;
     try {
@@ -249,12 +252,11 @@ app.post('/api/users', async (req, res) => {
         if (existingUser.length > 0) {
             return res.status(400).json({ error: 'Username already exists' });
         }
-
+        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
         const [result] = await pool.execute(
             'INSERT INTO users (username, password, role, frozen, blocked, deleted) VALUES (?, ?, ?, ?, ?, ?)',
-            [username, password, role, frozen || false, blocked || false, deleted || false]
+            [username, hashedPassword, role, frozen || false, blocked || false, deleted || false]
         );
-
         const [rows] = await pool.execute('SELECT id, username, role FROM users WHERE id = ?', [result.insertId]);
         res.json(rows[0]);
     } catch (err) {
@@ -266,11 +268,24 @@ app.put('/api/users/:id', async (req, res) => {
     const { id } = req.params;
     const { username, password, role, frozen, blocked, deleted } = req.body;
     try {
+        const [currentUser] = await pool.execute('SELECT password FROM users WHERE id = ?', [id]);
+        let finalPassword = password;
+        
+        if (currentUser.length > 0) {
+            const isSame = await bcrypt.compare(password, currentUser[0].password).catch(() => false);
+            if (!isSame) {
+                finalPassword = await bcrypt.hash(password, SALT_ROUNDS);
+            } else {
+                finalPassword = currentUser[0].password;
+            }
+        } else {
+            finalPassword = await bcrypt.hash(password, SALT_ROUNDS);
+        }
+
         await pool.execute(
             'UPDATE users SET username = ?, password = ?, role = ?, frozen = ?, blocked = ?, deleted = ? WHERE id = ?',
-            [username, password, role, frozen, blocked, deleted, id]
+            [username, finalPassword, role, frozen, blocked, deleted, id]
         );
-
         const [rows] = await pool.execute('SELECT id, username, role FROM users WHERE id = ?', [id]);
         res.json(rows[0]);
     } catch (err) {
@@ -297,22 +312,38 @@ app.get('/api/users', async (req, res) => {
     }
 });
 
+
 app.post('/api/login', async (req, res) => {
     const { username, password, role } = req.body;
     try {
         const [rows] = await pool.execute(
-            'SELECT * FROM users WHERE username = ? AND password = ? AND role = ? AND deleted = false',
-            [username, password, role]
+            'SELECT * FROM users WHERE username = ? AND role = ? AND deleted = false',
+            [username, role]
         );
-        if (rows.length > 0) {
-            const user = rows[0];
-            if (user.blocked) return res.status(403).json({ error: 'Account is blocked' });
-            if (user.frozen) return res.status(403).json({ error: 'Account is frozen' });
-            res.json({ id: user.id, username: user.username, role: user.role });
+        if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+        
+        const user = rows[0];
+        if (user.blocked) return res.status(403).json({ error: 'Account is blocked' });
+        if (user.frozen) return res.status(403).json({ error: 'Account is frozen' });
+        
+        let passwordMatch = false;
+        
+        if (user.password.startsWith('$2b$') || user.password.startsWith('$2a$')) {
+            passwordMatch = await bcrypt.compare(password, user.password);
         } else {
-            res.status(401).json({ error: 'Invalid credentials' });
+            passwordMatch = (password === user.password);
+            if (passwordMatch) {
+                const hashed = await bcrypt.hash(password, SALT_ROUNDS);
+                await pool.execute('UPDATE users SET password = ? WHERE id = ?', [hashed, user.id]);
+                console.log(`Password migrated for user: ${user.username}`);
+            }
         }
+        
+        if (!passwordMatch) return res.status(401).json({ error: 'Invalid credentials' });
+        
+        res.json({ id: user.id, username: user.username, role: user.role });
     } catch (err) {
+        console.error('Login error:', err);
         res.status(500).json({ error: err.message });
     }
 });

@@ -77,13 +77,16 @@ window.saveNewUser = async function (role) {
     }
 };
 
+
 window.showEditUserModal = function (id) {
     let user = users.find(u => u.id === id);
     if (!user) return;
     document.getElementById('modalContent').innerHTML = `
         <div class="modal-header"><h3>Edit User: ${user.username}</h3><button onclick="closeModal()">&times;</button></div>
         <div class="form-group"><label>Username</label><input type="text" id="editUserUsername" value="${escapeHtml(user.username)}"></div>
-        <div class="form-group"><label>New Password</label><input type="text" id="editUserPassword" value="${escapeHtml(user.password)}"></div>
+        <div class="form-group"><label>New Password <small style="color:#64748b;">(leave empty to keep current)</small></label>
+            <input type="password" id="editUserPassword" placeholder="Enter new password (optional)">
+        </div>
         <button class="save-btn" onclick="saveEditUser(${id})"><i class="fas fa-save"></i> Save Changes</button>`;
     document.getElementById('modal').classList.add('active');
 };
@@ -93,14 +96,25 @@ window.saveEditUser = async function (id) {
     if (!user) return;
     let newUsername = document.getElementById('editUserUsername').value.trim();
     let newPassword = document.getElementById('editUserPassword').value.trim();
-    if (!newUsername || !newPassword) { alert('Please fill all fields'); return; }
-    if (newUsername !== user.username && users.some(u => u.username === newUsername && !u.deleted && u.id !== id)) { alert('Username already exists!'); return; }
+    if (!newUsername) { alert('Please enter username'); return; }
+    if (newUsername !== user.username && users.some(u => u.username === newUsername && !u.deleted && u.id !== id)) {
+        alert('Username already exists!'); return;
+    }
     const saveBtn = document.querySelector('#modalContent .save-btn');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
     try {
-        await fetch(`/api/users/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: newUsername, password: newPassword, role: user.role, frozen: user.frozen, blocked: user.blocked, deleted: user.deleted }) });
-        user.username = newUsername; user.password = newPassword;
-        closeModal(); renderUsers(); alert(`User "${newUsername}" updated successfully!`);
+        let passwordToSend = newPassword || user.password;
+        await fetch(`/api/users/${id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: newUsername, password: passwordToSend,
+                role: user.role, frozen: user.frozen, blocked: user.blocked, deleted: user.deleted
+            })
+        });
+        user.username = newUsername;
+        if (newPassword) user.password = newPassword;
+        closeModal(); renderUsers();
+        alert(`User "${newUsername}" updated successfully!`);
     } catch (error) {
         if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; }
         alert('Failed to update user: ' + error.message);
