@@ -133,14 +133,15 @@ async function loadData() {
         const inventoryRes = await fetch('/api/inventory');
         const rawInventory = await inventoryRes.json();
         const mainInventory = rawInventory.map(item => ({
-            id: parseInt(item.id),
-            name: item.name,
-            purchasePrice: parseFloat(item.purchase_price) || parseFloat(item.purchasePrice) || 0,
-            sellingPrice: parseFloat(item.selling_price) || parseFloat(item.sellingPrice) || 0,
-            quantity: parseInt(item.quantity) || 0,
-            supplier: item.supplier || '',
-            date: item.date || getTodayDate()
-        }));
+                    id: parseInt(item.id),
+                    name: item.name,
+                    purchasePrice: parseFloat(item.purchase_price) || parseFloat(item.purchasePrice) || 0,
+                    sellingPrice: parseFloat(item.selling_price) || parseFloat(item.sellingPrice) || 0,
+                    quantity: parseInt(item.quantity) || 0,
+                    supplier: item.supplier || '',
+                    date: item.date || getTodayDate(),
+                    currency: item.currency || 'AFG'
+                }));
 
         const usersRes = await fetch('/api/users');
         const users = await usersRes.json();
@@ -165,6 +166,28 @@ async function loadData() {
             console.log('No shipments yet:', err);
         }
 
+        let itemDiscounts = {};
+        try {
+            const discountsRes = await fetch('/api/discounts');
+            if (discountsRes.ok) {
+                const discountsData = await discountsRes.json();
+                for (const d of discountsData) {
+                    itemDiscounts[d.item_name] = {
+                        discountPercent: parseInt(d.discount_percent) || 0,
+                        discountAmount: d.discount_amount ? parseFloat(d.discount_amount) : null,
+                        isPercent: d.is_percent === 1 || d.is_percent === true,
+                        newPrice: parseFloat(d.new_price),
+                        originalPrice: parseFloat(d.original_price),
+                        appliedDate: d.applied_date ? d.applied_date.split('T')[0] : getTodayDate()
+                    };
+                }
+                for (const item of mainInventory) {
+                    if (itemDiscounts[item.name]) item.sellingPrice = itemDiscounts[item.name].newPrice;
+                }
+            }
+        } catch (err) {
+            console.log('Error loading discounts:', err);
+        }
         return {
             users, mainInventory,
             mainFinance: { totalPurchase: 0, totalSale: 0, totalProfit: 0, totalExpenses: 0 },
@@ -172,7 +195,7 @@ async function loadData() {
             shipments: [], mainClientItems: [], mainClientToBranchShipments: shipments,
             mainClientBranchPayments: {}, expenses: [], lowStockAlerts: [], salesHistory: [],
             payments: {}, mainClientPayments: {}, shipmentReminders: {}, invoices: [],
-            branchReturns: [], mainClientDistributed: {}, itemDiscounts: {},
+            branchReturns: [], mainClientDistributed: {}, itemDiscounts,
             dailyPayments: {}, billPayments: {}, branchBills: {}
         };
     } catch (error) {
@@ -186,15 +209,16 @@ async function loadData() {
 async function refreshDataFromServer() {
     try {
         const freshInventory = await fetchInventory();
-        const convertedInventory = freshInventory.map(item => ({
-            id: parseInt(item.id),
-            name: item.name,
-            purchasePrice: parseFloat(item.purchase_price) || parseFloat(item.purchasePrice) || 0,
-            sellingPrice: parseFloat(item.selling_price) || parseFloat(item.sellingPrice) || 0,
-            quantity: parseInt(item.quantity) || 0,
-            supplier: item.supplier || '',
-            date: item.date || getTodayDate()
-        }));
+                const convertedInventory = freshInventory.map(item => ({
+                    id: parseInt(item.id),
+                    name: item.name,
+                    purchasePrice: parseFloat(item.purchase_price) || parseFloat(item.purchasePrice) || 0,
+                    sellingPrice: parseFloat(item.selling_price) || parseFloat(item.sellingPrice) || 0,
+                    quantity: parseInt(item.quantity) || 0,
+                    supplier: item.supplier || '',
+                    date: item.date || getTodayDate(),
+                    currency: item.currency || 'AFG'
+                }));
 
         const freshUsers = await fetchUsers();
 
@@ -438,14 +462,130 @@ async function refreshDataFromServer() {
         users = freshUsers;
         mainClientToBranchShipments = convertedShipments;
         if (currentUser && currentUser.role === 'branch') branchInventory = freshBranchInventory;
-
         mainClientItems = mainInventory.map(item => ({
-            id: item.id, name: item.name,
-            sellingPrice: item.sellingPrice, purchasePrice: item.purchasePrice,
-            quantity: item.quantity, date: item.date || getTodayDate(), supplier: item.supplier
-        }));
+                id: item.id, name: item.name,
+                sellingPrice: item.sellingPrice, purchasePrice: item.purchasePrice,
+                quantity: item.quantity, date: item.date || getTodayDate(), supplier: item.supplier,
+                currency: item.currency || 'AFG'
+            }));
 
+        for (let shipment of mainClientToBranchShipments) {
+            let discount = getItemDiscount(shipment.item);
+            if (discount) {
+                shipment._originalPrice = discount.originalPrice;
+                shipment._discountedPrice = discount.newPrice;
+            }
+        }
+
+if (Object.keys(itemDiscounts).length > 0) {
+    for (let item of mainInventory) {
+        let discount = itemDiscounts[item.name];
+        if (discount) {
+            item.sellingPrice = discount.newPrice;
+            item.selling_price = discount.newPrice;
+        }
+    }
+    for (let item of mainClientItems) {
+        let discount = itemDiscounts[item.name];
+        if (discount) {
+            item.sellingPrice = discount.newPrice;
+            item.selling_price = discount.newPrice;
+        }
+    }
+}
+
+if (Object.keys(itemDiscounts).length > 0) {
+    for (let item of mainInventory) {
+        let d = itemDiscounts[item.name];
+        if (d) { item.sellingPrice = d.newPrice; item.selling_price = d.newPrice; }
+    }
+    for (let item of mainClientItems) {
+        let d = itemDiscounts[item.name];
+        if (d) { item.sellingPrice = d.newPrice; item.selling_price = d.newPrice; }
+    }
+    for (let s of mainClientToBranchShipments) {
+        let d = itemDiscounts[s.item];
+        if (d) { s._discountedPrice = d.newPrice; s._originalPrice = d.originalPrice; }
+    }
+}
+
+try {
+    const discRes = await fetch('/api/discounts');
+    if (discRes.ok) {
+        const discData = await discRes.json();
+        if (discData.length > 0) {
+            itemDiscounts = {};
+            for (const d of discData) {
+                itemDiscounts[d.item_name] = {
+                    discountPercent: parseFloat(d.discount_percent),
+                    newPrice: parseFloat(d.new_price),
+                    originalPrice: parseFloat(d.original_price),
+                    isPercent: d.is_percent === 1,
+                    appliedDate: d.applied_date
+                };
+            }
+            // اعمال به inventory
+            for (let item of mainInventory) {
+                let disc = itemDiscounts[item.name];
+                if (disc) { item.sellingPrice = disc.newPrice; item.selling_price = disc.newPrice; }
+            }
+            for (let item of mainClientItems) {
+                let disc = itemDiscounts[item.name];
+                if (disc) { item.sellingPrice = disc.newPrice; item.selling_price = disc.newPrice; }
+            }
+        }
+    }
+} catch(err) { console.log('Discount load error:', err); }
+
+
+// Load sales history for admin (needed for correct discount calculations in inventory)
+   // Load sales history for admin (all) and branch (own) - needed for correct discount calculations
+if (currentUser && currentUser.role === 'admin') {
+    try {
+        const allSalesRes = await fetch('/api/sales/all');
+        if (allSalesRes.ok) {
+            const allSalesData = await allSalesRes.json();
+            salesHistory = allSalesData.map(s => ({
+                id: s.id,
+                date: s.date ? s.date.split('T')[0] : getTodayDate(),
+                branch: s.branch,
+                item: s.item,
+                qty: parseInt(s.qty),
+                price: parseFloat(s.price),
+                purchasePrice: parseFloat(s.purchase_price),
+                revenue: parseFloat(s.revenue),
+                cost: parseFloat(s.cost),
+                profit: parseFloat(s.profit),
+                billNumber: s.bill_number,
+                customer_name: s.customer_name || ''
+            }));
+        }
+    } catch (err) { console.log('Error loading sales history:', err); }
+} else if (currentUser && currentUser.role === 'branch') {
+    try {
+        const branchSalesRes = await fetch(`/api/sales/${currentUser.username}`);
+        if (branchSalesRes.ok) {
+            const branchSalesData = await branchSalesRes.json();
+            salesHistory = branchSalesData.map(s => ({
+                id: s.id,
+                date: s.date ? s.date.split('T')[0] : getTodayDate(),
+                branch: s.branch,
+                item: s.item,
+                qty: parseInt(s.qty),
+                price: parseFloat(s.price),
+                purchasePrice: parseFloat(s.purchase_price),
+                revenue: parseFloat(s.revenue),
+                cost: parseFloat(s.cost),
+                profit: parseFloat(s.profit),
+                billNumber: s.bill_number,
+                customer_name: s.customer_name || ''
+            }));
+        }
+    } catch (err) { console.log('Error loading branch sales history:', err); }
+}
         recalcMainFinance();
+
+        
         return true;
     } catch (error) {
         console.error('Error refreshing data:', error);
@@ -475,6 +615,8 @@ function calculateTotalPurchaseValue() {
     return total;
 }
 
+
+
 function calculateTotalSaleValue() {
     let total = 0;
     for (let item of mainInventory) {
@@ -496,21 +638,35 @@ function calculateTotalSaleValue() {
 
 function recalcMainFinance() {
     let totalPurchase = 0, totalSale = 0, totalExpenses = 0;
+    let totalPurchaseUSD = 0, totalSaleUSD = 0;
     for (let item of mainInventory) {
         const qty = parseInt(item.quantity) || 0;
         const purchasePrice = parseFloat(item.purchase_price) || parseFloat(item.purchasePrice) || 0;
-        totalPurchase += purchasePrice * qty;
+        const itemCurrency = item.currency || 'AFG';
 
-        // sale value با discount logic
         let currentPrice = parseFloat(item.selling_price) || parseFloat(item.sellingPrice) || 0;
         let discount = getItemDiscount(item.name);
         let originalPrice = discount ? discount.originalPrice : currentPrice;
         let soldQty = salesHistory.filter(s => s.item === item.name).reduce((sum, s) => sum + s.qty, 0);
         let remainingQty = Math.max(0, qty - soldQty);
         let actualSoldQty = Math.min(soldQty, qty);
-        totalSale += (actualSoldQty * originalPrice) + (remainingQty * currentPrice);
+        let saleValue = (actualSoldQty * originalPrice) + (remainingQty * currentPrice);
+
+        if (itemCurrency === 'USD') {
+            totalPurchaseUSD += purchasePrice * qty;
+            totalSaleUSD += saleValue;
+        } else {
+            totalPurchase += purchasePrice * qty;
+            totalSale += saleValue;
+        }
     }
-    for (let exp of expenses) totalExpenses += parseFloat(exp.amount) || 0;
+ 
+    let totalExpensesUSD = 0;
+    for (let exp of expenses) {
+        let amt = parseFloat(exp.amount) || 0;
+        if (exp.currency === 'USD') totalExpensesUSD += amt;
+        else totalExpenses += amt;
+    }
     for (const client in mainClientExpenses) {
         if (Array.isArray(mainClientExpenses[client]))
             for (let exp of mainClientExpenses[client])
@@ -520,6 +676,12 @@ function recalcMainFinance() {
     mainFinance.totalSale = totalSale;
     mainFinance.totalExpenses = totalExpenses;
     mainFinance.totalProfit = totalSale - totalPurchase - totalExpenses;
+
+    mainFinance.totalPurchaseUSD = totalPurchaseUSD;
+    mainFinance.totalSaleUSD = totalSaleUSD;
+    mainFinance.totalExpensesUSD = totalExpensesUSD;
+    mainFinance.totalProfitUSD = totalSaleUSD - totalPurchaseUSD - totalExpensesUSD;
+
     saveData();
 }
 
@@ -542,7 +704,7 @@ function generateMainClientToBranchShipmentId(shipment) {
 }
 
 function getShipmentReminder(shipment) {
-    let totalPrice = shipment.sellingPrice * shipment.qty;
+    let totalPrice = getShipmentCorrectTotal(shipment);
     if (shipment.uniqueKey && shipmentPayments[shipment.uniqueKey] !== undefined) {
         let paid = shipmentPayments[shipment.uniqueKey];
         let reminder = totalPrice - paid;
@@ -559,14 +721,14 @@ function getShipmentReminder(shipment) {
 function getShipmentPaidAmount(shipment) {
     if (shipment.uniqueKey && shipmentPayments[shipment.uniqueKey] !== undefined)
         return shipmentPayments[shipment.uniqueKey];
-    let total = shipment.sellingPrice * shipment.qty;
+    let total = getShipmentCorrectTotal(shipment);
     let reminder = getShipmentReminder(shipment);
     let paid = total - reminder;
     return paid < 0 ? 0 : paid;
 }
 
 function getShipmentStatus(shipment) {
-    let totalPrice = shipment.sellingPrice * shipment.qty;
+    let totalPrice = getShipmentCorrectTotal(shipment);
     let paidAmount = getShipmentPaidAmount(shipment);
     if (paidAmount >= totalPrice || Math.abs(totalPrice - paidAmount) < 0.01) return 'paid';
     if (paidAmount > 0) return 'partial';
@@ -580,12 +742,13 @@ function updateShipmentReminder(shipment, paymentAmount) {
     if (Math.abs(newReminder) < 0.01) newReminder = 0;
     if (newReminder < 0) newReminder = 0;
     shipmentReminders[id] = newReminder;
-    let totalPrice = shipment.sellingPrice * shipment.qty;
+    let totalPrice = getShipmentCorrectTotal(shipment);
     let paidSoFar = totalPrice - newReminder;
     if (shipment.uniqueKey) shipmentPayments[shipment.uniqueKey] = paidSoFar;
     updateDailyPayment(shipment.date, shipment, newReminder <= 0, paidSoFar);
     saveData();
 }
+
 
 function updateDailyPayment(date, shipment, isPaid, amount) {
     let key = `${date}`;
@@ -859,15 +1022,25 @@ function getDiscountPercent(originalPrice, discountedPrice) {
     return Math.round(((originalPrice - discountedPrice) / originalPrice) * 100);
 }
 
-function renderPriceWithDiscount(originalPrice, currentPrice, itemName) {
+function formatByCurrency(amount, currency) {
+    if (currency === 'USD') {
+        if (amount === undefined || amount === null || isNaN(amount)) return '$ 0.00';
+        let n = typeof amount === 'string' ? parseFloat(amount) : amount;
+        if (isNaN(n)) return '$ 0.00';
+        return '$ ' + n.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
+    }
+    return formatMoney(amount);
+}
+
+function renderPriceWithDiscount(originalPrice, currentPrice, itemName, currency = 'AFG') {
     let discount = getItemDiscount(itemName);
     if (discount && originalPrice !== currentPrice) {
         let percent = getDiscountPercent(originalPrice, currentPrice);
-        return `<span class="old-price">${formatMoney(originalPrice)}</span>
-                <span class="new-price">${formatMoney(currentPrice)}</span>
+        return `<span class="old-price">${formatByCurrency(originalPrice, currency)}</span>
+                <span class="new-price">${formatByCurrency(currentPrice, currency)}</span>
                 <span class="discount-percent">-${percent}%</span>`;
     }
-    return formatMoney(currentPrice);
+    return formatByCurrency(currentPrice, currency);
 }
 
 async function applyDiscountToItem(itemName, discountValue, isPercent) {
@@ -1103,10 +1276,7 @@ function deleteItemFromAllLocations(itemId, itemName) {
     dailyPayments = data.dailyPayments; billPayments = data.billPayments; branchBills = data.branchBills;
     shipmentPayments = data.shipmentPayments || {};
     console.log('Initialization complete. Users:', users.length, 'Inventory:', mainInventory.length);
-    loadExchangeRate();
-    setInterval(loadExchangeRate, 30 * 60 * 1000);
 })();
-
 
 function sortByDateDesc(arr, dateField = 'date') {
     return [...arr].sort((a, b) => {
@@ -1116,73 +1286,60 @@ function sortByDateDesc(arr, dateField = 'date') {
     });
 }
 
-// ==================== CURRENCY ====================
-let currentCurrency = 'AFG';
-let usdToAfgRate = 70; 
-
-async function loadExchangeRate() {
-    try {
-        const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
-        if (res.ok) {
-            const data = await res.json();
-            if (data.rates && data.rates.AFN) {
-                usdToAfgRate = data.rates.AFN;
-                let rateDisplay = document.getElementById('currencyRateDisplay');
-                if (rateDisplay) {
-                    rateDisplay.textContent = `1 USD = ${usdToAfgRate.toFixed(1)} AFG`;
-                }
-                console.log(`Exchange rate loaded: 1 USD = ${usdToAfgRate} AFN`);
-            }
-        }
-    } catch (err) {
-        console.log('Exchange rate API failed, using default:', usdToAfgRate);
-        try {
-            const res2 = await fetch('https://open.er-api.com/v6/latest/USD');
-            if (res2.ok) {
-                const data2 = await res2.json();
-                if (data2.rates && data2.rates.AFN) {
-                    usdToAfgRate = data2.rates.AFN;
-                    let rateDisplay = document.getElementById('currencyRateDisplay');
-                    if (rateDisplay) rateDisplay.textContent = `1 USD = ${usdToAfgRate.toFixed(1)} AFG`;
-                }
-            }
-        } catch(err2) { console.log('Both APIs failed, using default rate'); }
-    }
+function getShipmentCorrectTotal(s) {
+    let totalQty = parseInt(s.qty) || 0;
+    let basePrice = s.sellingPrice || 0;
+    let fullPrice = basePrice * totalQty;
+    
+    let paidAmount = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) 
+        ? shipmentPayments[s.uniqueKey] : 0;
+    
+    if (paidAmount >= fullPrice && fullPrice > 0) return fullPrice;
+    
+    let discount = getItemDiscount(s.item);
+    if (!discount) return fullPrice;
+    
+    let originalPrice = parseFloat(discount.originalPrice) || basePrice;
+    let currentPrice = parseFloat(discount.newPrice) || basePrice;
+    
+    let allSoldInBranch = salesHistory
+        .filter(sale => sale.branch === s.branch && sale.item === s.item)
+        .reduce((sum, sale) => sum + (parseInt(sale.qty) || 0), 0);
+    
+    let soldFromThis = Math.min(allSoldInBranch, totalQty);
+    let unsoldQty = Math.max(0, totalQty - soldFromThis);
+    
+    return (soldFromThis * originalPrice) + (unsoldQty * currentPrice);
 }
 
-window.toggleCurrency = function() {
-    currentCurrency = currentCurrency === 'AFG' ? 'USD' : 'AFG';
-    let btn = document.getElementById('currencyBtn');
-    if (btn) {
-        if (currentCurrency === 'USD') {
-            btn.innerHTML = '<i class="fas fa-money-bill-wave"></i> AFG';
-            btn.style.background = '#166534';
-            btn.style.color = 'white';
-        } else {
-            btn.innerHTML = '<i class="fas fa-dollar-sign"></i> USD';
-            btn.style.background = 'white';
-            btn.style.color = '#166534';
-        }
+function getBranchRemainder(branch) {
+    let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
+    let totalRemainder = 0;
+    for (let s of branchShipments) {
+        let correctTotal = getShipmentCorrectTotal(s);
+        let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) 
+            ? shipmentPayments[s.uniqueKey] : 0;
+        totalRemainder += Math.max(0, correctTotal - paid);
     }
-    if (currentUser) refreshCurrentSection();
-};
+    return totalRemainder;
+}
 
-const _originalFormatMoney = formatMoney;
-window.formatMoney = function(amount) {
-    if (amount === undefined || amount === null || isNaN(amount)) {
-        return currentCurrency === 'USD' ? '$ 0.00' : 'AFG 0.00';
-    }
-    let numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
-    if (isNaN(numAmount)) return currentCurrency === 'USD' ? '$ 0.00' : 'AFG 0.00';
+function getBranchTotalPaid(branch) {
+    let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
+    return branchShipments.reduce((sum, s) => {
+        let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) 
+            ? shipmentPayments[s.uniqueKey] : 0;
+        return sum + paid;
+    }, 0);
+}
 
-    if (currentCurrency === 'USD') {
-        let usdAmount = numAmount / usdToAfgRate;
-        return '$ ' + usdAmount.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
-    }
-    return 'AFG ' + numAmount.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
-};
+function getBranchTotalValue(branch) {
+    let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
+    return branchShipments.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
+}
 
 // git status
 // git add .
 // git commit -m "Describe your changes"
 // git push origin main
+

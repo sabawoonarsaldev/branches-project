@@ -2,6 +2,8 @@
 // Branch: finance، payments، returns، history، complete report
 
 // ==================== BRANCH FINANCE ====================
+
+// ==================== BRANCH PAYMENTS ====================
 async function renderBranchFinance() {
     let branch = currentUser.username;
 
@@ -24,95 +26,129 @@ async function renderBranchFinance() {
         if (expensesResponse.ok) {
             branchExpenses[branch] = (await expensesResponse.json()).map(e => ({
                 id: e.id, date: e.date ? e.date.split('T')[0] : getTodayDate(),
-                category: e.category, amount: parseFloat(e.amount), description: e.description
+                category: e.category, amount: parseFloat(e.amount), description: e.description,
+                currency: e.currency || 'AFG'
             }));
         }
     } catch (err) { console.log('Error loading expenses:', err); }
 
-    let branchSales = salesHistory.filter(s => s.branch === branch);
-    let totalSale = branchSales.reduce((sum, s) => sum + (s.revenue || 0), 0);
-    let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
-    let totalPurchase = branchShipments.reduce((sum, s) => sum + ((s.sellingPrice || 0) * (s.qty || 0)), 0);
+    let branchSalesAll = salesHistory.filter(s => s.branch === branch).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+    let branchShipmentsAll = mainClientToBranchShipments.filter(s => s.branch === branch).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
     let expensesList = branchExpenses[branch] || [];
-    let totalExpenses = expensesList.reduce((sum, exp) => sum + (exp.amount || 0), 0);
-    let grossProfit = totalSale - totalPurchase;
-    let netProfit = grossProfit - totalExpenses;
 
-    if (!branchFinance[branch]) branchFinance[branch] = { totalSale: 0, totalPurchase: 0, totalProfit: 0, totalLoss: 0, totalExpenses: 0 };
-    branchFinance[branch].totalSale = totalSale;
-    branchFinance[branch].totalPurchase = totalPurchase;
-    branchFinance[branch].totalExpenses = totalExpenses;
-    branchFinance[branch].totalProfit = netProfit;
+    function buildFinanceBlock(currency) {
+        let fmt = (v) => formatByCurrency(v, currency);
+        let sales = branchSalesAll.filter(s => s.currency === currency);
+        let shipments = branchShipmentsAll.filter(s => s.currency === currency);
+        let exps = expensesList.filter(e => (e.currency||'AFG') === currency);
+
+        let totalSale = sales.reduce((sum, s) => sum + (s.revenue || 0), 0);
+        let totalPurchase = shipments.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
+        let totalExpenses = exps.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+        let netProfit = totalSale - totalPurchase - totalExpenses;
+
+        let bgClass = currency === 'USD' ? 'style="background:linear-gradient(145deg,#3b82f6,#2563eb);color:white;"' : '';
+        let iconStyle = currency === 'USD' ? 'style="color:white;"' : '';
+        let hStyle = currency === 'USD' ? 'style="color:rgba(255,255,255,0.8);"' : '';
+        let smallStyle = currency === 'USD' ? 'style="color:rgba(255,255,255,0.7);"' : '';
+
+        let html = `
+        <div class="stats-grid">
+            <div class="stat-card" ${bgClass}><i class="fas fa-shopping-cart" ${iconStyle}></i><h4 ${hStyle}>Total Sales (Revenue)</h4><div class="stat-value ${currency!=='USD'?'total-value':''}" style="${currency==='USD'?'color:white;':'color:#22c55e;'}">${fmt(totalSale)}</div><small ${smallStyle}>From all sales</small></div>
+            <div class="stat-card" ${bgClass}><i class="fas fa-truck" ${iconStyle}></i><h4 ${hStyle}>Total Purchases (Cost)</h4><div class="stat-value ${currency!=='USD'?'total-value':''}" style="${currency==='USD'?'color:white;':'color:#f59e0b;'}">${fmt(totalPurchase)}</div><small ${smallStyle}>From main client shipments</small></div>
+            <div class="stat-card ${currency!=='USD'?'expense-card':''}" ${currency==='USD'?'style="background:#64748b;color:white;"':''}><i class="fas fa-file-invoice" ${iconStyle}></i><h4 ${hStyle}>Total Expenses</h4><div class="stat-value" style="${currency==='USD'?'color:white;':'color:#dc2626;'}">${fmt(totalExpenses)}</div><small ${smallStyle}>${exps.length} expense(s)</small></div>
+        </div>
+        <div class="stat-card" style="background:${netProfit>=0 ? 'linear-gradient(145deg,#22c55e,#16a34a)' : 'linear-gradient(145deg,#ef4444,#b91c1c)'};color:white;margin-top:20px;">
+            <i class="fas fa-wallet" style="color:white;"></i>
+            <h4 style="color:rgba(255,255,255,0.8);">Net Profit</h4>
+            <div class="stat-value" style="color:white;font-size:32px;">${fmt(netProfit)}</div>
+            <small style="color:rgba(255,255,255,0.7);">Gross Profit - Expenses</small>
+        </div>`;
+
+        if (exps.length > 0) {
+            html += `<h4 style="margin:20px 0 12px;">Expense History</h4>
+            <div class="table-wrapper"><table class="inventory-table">
+                <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th></tr></thead>
+                <tbody>${exps.sort((a, b) => new Date(b.date) - new Date(a.date)).map(exp => `
+                    <tr>
+                        <td>${exp.date}</td>
+                        <td><span class="badge badge-blocked">${exp.category}</span></td>
+                        <td>${exp.description || '-'}</td>
+                        <td style="color:#dc2626;font-weight:600;">${fmt(exp.amount)}</td>
+                    </tr>`).join('')}
+                </tbody>
+                <tfoot><tr class="grand-total"><td colspan="3"><strong>Total Expenses</strong></td><td><strong>${fmt(totalExpenses)}</strong></td></tr></tfoot>
+            </table></div>`;
+        }
+
+        if (sales.length > 0) {
+            let lastTen = sales.slice(-10).reverse();
+            html += `<h4 style="margin:20px 0 12px;">Recent Sales (Last 10)</h4>
+            <div class="table-wrapper"><table class="inventory-table">
+                <thead><tr><th>Date</th><th>Item</th><th>Quantity</th><th>Selling Price</th><th>Revenue</th><th>Bill Number</th></tr></thead>
+                <tbody>${lastTen.map(s => `
+                    <tr>
+                        <td>${s.date}</td><td>${s.item}</td><td>${s.qty}</td>
+                        <td>${fmt(s.price)}</td>
+                        <td style="color:#22c55e;font-weight:600;">${fmt(s.revenue)}</td>
+                        <td>${s.billNumber || '-'}</td>
+                    </tr>`).join('')}
+                </tbody>
+                <tfoot><tr class="grand-total">
+                    <td colspan="4"><strong>Total (Last 10)</strong></td>
+                    <td><strong>${fmt(lastTen.reduce((sum, s) => sum + s.revenue, 0))}</strong></td>
+                    <td></td>
+                </tr></tfoot>
+            </table></div>`;
+        }
+        return html;
+    }
 
     let html = `
         <div class="header-actions">
             <h2 class="page-title">My Finance</h2>
             <button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button>
         </div>
-        <div class="stats-grid">
-            <div class="stat-card"><i class="fas fa-shopping-cart"></i><h4>Total Sales (Revenue)</h4><div class="stat-value total-value" style="color:#22c55e;">${formatMoney(totalSale)}</div><small>From all sales</small></div>
-            <div class="stat-card"><i class="fas fa-truck"></i><h4>Total Purchases (Cost)</h4><div class="stat-value total-value" style="color:#f59e0b;">${formatMoney(totalPurchase)}</div><small>From main client shipments</small></div>
-            <div class="stat-card expense-card"><i class="fas fa-file-invoice"></i><h4>Total Expenses</h4><div class="stat-value" style="color:#dc2626;">${formatMoney(totalExpenses)}</div><small>${expensesList.length} expense(s)</small></div>
-        </div>
-        <div class="stat-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;margin-top:20px;">
-            <i class="fas fa-wallet" style="color:white;"></i>
-            <h4 style="color:rgba(255,255,255,0.8);">Net Profit</h4>
-            <div class="stat-value" style="color:white;font-size:32px;">${formatMoney(netProfit)}</div>
-            <small style="color:rgba(255,255,255,0.7);">Gross Profit - Expenses</small>
-        </div>`;
-
-    if (expensesList.length > 0) {
-        html += `<h3 style="margin:30px 0 20px;">Expense History</h3>
-        <div class="table-wrapper"><table class="inventory-table">
-            <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th></tr></thead>
-            <tbody>${expensesList.sort((a, b) => new Date(b.date) - new Date(a.date)).map(exp => `
-                <tr>
-                    <td>${exp.date}</td>
-                    <td><span class="badge badge-blocked">${exp.category}</span></td>
-                    <td>${exp.description || '-'}</td>
-                    <td style="color:#dc2626;font-weight:600;">${formatMoney(exp.amount)}</td>
-                </tr>`).join('')}
-            </tbody>
-            <tfoot><tr class="grand-total"><td colspan="3"><strong>Total Expenses</strong></td><td><strong>${formatMoney(totalExpenses)}</strong></td></tr></tfoot>
-        </table></div>`;
-    } else {
-        html += `<div class="empty-state" style="margin-top:30px;"><i class="fas fa-file-invoice"></i><h3>No Expenses Yet</h3>
-            <button class="action-btn" onclick="showSection('branchExpenses')" style="margin-bottom:0;"><i class="fas fa-plus"></i> Add Expense</button></div>`;
-    }
-
-    if (branchSales.length > 0) {
-        let lastTen = branchSales.slice(-10).reverse();
-        html += `<h3 style="margin:30px 0 20px;">Recent Sales (Last 10)</h3>
-        <div class="table-wrapper"><table class="inventory-table">
-            <thead><tr><th>Date</th><th>Item</th><th>Quantity</th><th>Selling Price</th><th>Revenue</th><th>Bill Number</th></tr></thead>
-            <tbody>${lastTen.map(s => `
-                <tr>
-                    <td>${s.date}</td><td>${s.item}</td><td>${s.qty}</td>
-                    <td>${formatMoney(s.price)}</td>
-                    <td style="color:#22c55e;font-weight:600;">${formatMoney(s.revenue)}</td>
-                    <td>${s.billNumber || '-'}</td>
-                </tr>`).join('')}
-            </tbody>
-            <tfoot><tr class="grand-total">
-                <td colspan="4"><strong>Total (Last 10)</strong></td>
-                <td><strong>${formatMoney(lastTen.reduce((sum, s) => sum + s.revenue, 0))}</strong></td>
-                <td></td>
-            </tr></tfoot>
-        </table></div>`;
-    }
+        <h3 style="margin-bottom:15px;"><i class="fas fa-money-bill-wave"></i> Afghani (AFG)</h3>
+        ${buildFinanceBlock('AFG')}
+        <h3 style="margin:30px 0 15px;"><i class="fas fa-dollar-sign"></i> US Dollar (USD)</h3>
+        ${buildFinanceBlock('USD')}`;
 
     document.getElementById('content').innerHTML = html;
 }
 
-// ==================== BRANCH PAYMENTS ====================
 function renderBranchPayments() {
     let branch = currentUser.username;
-    let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
-    let totalValue = branchShipments.reduce((sum, s) => sum + (s.sellingPrice * s.qty), 0);
-    let totalPaid = branchShipments.reduce((sum, s) => sum + getShipmentPaidAmount(s), 0);
-    let totalUnpaid = totalValue - totalPaid;
-    let paidItems = branchShipments.filter(s => getShipmentStatus(s) === 'paid').length;
-    let partialItems = branchShipments.filter(s => getShipmentStatus(s) === 'partial').length;
+    let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+
+    let shipmentsWithCalc = branchShipments.map(s => {
+        let correctTotal = getShipmentCorrectTotal(s);
+        let paidAmount = Math.min(
+            (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) 
+                ? shipmentPayments[s.uniqueKey] : 0,
+            correctTotal
+        );
+        let unpaidAmount = Math.max(0, correctTotal - paidAmount);
+        let status = paidAmount >= correctTotal ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid');
+        return { ...s, totalPrice: correctTotal, paidAmount, unpaidAmount, status };
+    });
+
+    let afgList = shipmentsWithCalc.filter(s => s.currency !== 'USD');
+    let usdList = shipmentsWithCalc.filter(s => s.currency === 'USD');
+
+    function calcSummary(list) {
+        return {
+            count: list.length,
+            paidCount: list.filter(s => s.status === 'paid').length,
+            partialCount: list.filter(s => s.status === 'partial').length,
+            totalValue: list.reduce((sum, s) => sum + s.totalPrice, 0),
+            totalPaid: list.reduce((sum, s) => sum + s.paidAmount, 0),
+            totalUnpaid: list.reduce((sum, s) => sum + s.unpaidAmount, 0)
+        };
+    }
+
+    let afgSummary = calcSummary(afgList);
+    let usdSummary = calcSummary(usdList);
 
     let html = `
         <div class="header-actions">
@@ -120,40 +156,65 @@ function renderBranchPayments() {
             <button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button>
         </div>
         <div class="payment-summary">
-            <h3><i class="fas fa-chart-pie"></i> Payment Summary</h3>
+            <h3><i class="fas fa-chart-pie"></i> Payment Summary (AFG)</h3>
             <div class="summary-stats">
-                <div class="summary-item"><div class="label">Total Shipments</div><div class="value">${branchShipments.length}</div></div>
-                <div class="summary-item"><div class="label">Paid Shipments</div><div class="value" style="color:#22c55e;">${paidItems}</div></div>
-                <div class="summary-item"><div class="label">Partial Shipments</div><div class="value" style="color:#f59e0b;">${partialItems}</div></div>
-                <div class="summary-item"><div class="label">Total Value</div><div class="value">${formatMoney(totalValue)}</div></div>
-                <div class="summary-item"><div class="label">Total Paid</div><div class="value" style="color:#22c55e;">${formatMoney(totalPaid)}</div></div>
-                <div class="summary-item"><div class="label">Total Unpaid</div><div class="value" style="color:#ef4444;">${formatMoney(totalUnpaid)}</div></div>
+                <div class="summary-item"><div class="label">Total Shipments</div><div class="value">${afgSummary.count}</div></div>
+                <div class="summary-item"><div class="label">Paid</div><div class="value" style="color:#22c55e;">${afgSummary.paidCount}</div></div>
+                <div class="summary-item"><div class="label">Partial</div><div class="value" style="color:#f59e0b;">${afgSummary.partialCount}</div></div>
+                <div class="summary-item"><div class="label">Total Value</div><div class="value">${formatMoney(afgSummary.totalValue)}</div></div>
+                <div class="summary-item"><div class="label">Total Paid</div><div class="value" style="color:#22c55e;">${formatMoney(afgSummary.totalPaid)}</div></div>
+                <div class="summary-item"><div class="label">Total Unpaid</div><div class="value" style="color:#ef4444;">${formatMoney(afgSummary.totalUnpaid)}</div></div>
             </div>
         </div>
-        <h3 style="margin-bottom:20px;">Payment Details</h3>`;
-
-    if (branchShipments.length === 0) {
-        html += `<div class="empty-state"><i class="fas fa-box"></i><h3>No Payments Yet</h3><p>You haven't received any items from main client.</p></div>`;
-    } else {
-        html += `<div class="table-wrapper"><table>
-            <thead><tr><th>#</th><th>Date</th><th>Item Name</th><th>Quantity</th><th>Selling Price</th><th>Total Price</th><th>Paid Amount</th><th>Remaining</th><th>Status</th></tr></thead>
-            <tbody>${branchShipments.sort((a, b) => new Date(b.date) - new Date(a.date)).map((s, index) => {
-                let totalPrice = s.sellingPrice * s.qty;
-                let paidAmount = getShipmentPaidAmount(s);
-                let reminder = totalPrice - paidAmount;
-                let status = getShipmentStatus(s);
-                let sc = status === 'paid' ? 'badge-paid' : (status === 'partial' ? 'badge-partial' : 'badge-unpaid');
-                return `<tr>
-                    <td>${index + 1}</td><td>${s.date}</td><td>${s.item}</td><td>${s.qty}</td>
-                    <td>${formatMoney(s.sellingPrice)}</td>
-                    <td class="total-value">${formatMoney(totalPrice)}</td>
-                    <td class="status-paid">${formatMoney(paidAmount)}</td>
-                    <td class="reminder-amount">${formatMoney(reminder)}</td>
-                    <td><span class="badge ${sc}">${status.toUpperCase()}</span></td>
-                </tr>`;
-            }).join('')}</tbody>
-        </table></div>`;
-    }
+        ${usdList.length > 0 ? `
+        <div class="payment-summary" style="border:2px solid #3b82f6;">
+            <h3 style="color:#2563eb;"><i class="fas fa-dollar-sign"></i> Payment Summary (USD)</h3>
+            <div class="summary-stats">
+                <div class="summary-item"><div class="label">Total Shipments</div><div class="value">${usdSummary.count}</div></div>
+                <div class="summary-item"><div class="label">Paid</div><div class="value" style="color:#22c55e;">${usdSummary.paidCount}</div></div>
+                <div class="summary-item"><div class="label">Partial</div><div class="value" style="color:#f59e0b;">${usdSummary.partialCount}</div></div>
+                <div class="summary-item"><div class="label">Total Value</div><div class="value">${formatByCurrency(usdSummary.totalValue,'USD')}</div></div>
+                <div class="summary-item"><div class="label">Total Paid</div><div class="value" style="color:#22c55e;">${formatByCurrency(usdSummary.totalPaid,'USD')}</div></div>
+                <div class="summary-item"><div class="label">Total Unpaid</div><div class="value" style="color:#ef4444;">${formatByCurrency(usdSummary.totalUnpaid,'USD')}</div></div>
+            </div>
+        </div>` : ''}
+        <h3 style="margin-bottom:20px;">Payment Details</h3>
+        ${shipmentsWithCalc.length === 0 
+            ? `<div class="empty-state"><i class="fas fa-box"></i><h3>No Payments Yet</h3></div>`
+            : `<div class="table-wrapper"><table>
+                <thead><tr><th>#</th><th>Date</th><th>Item</th><th>Currency</th><th>Qty</th><th>Price/Unit</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th></tr></thead>
+                <tbody>${shipmentsWithCalc.sort((a,b) => new Date(b.date)-new Date(a.date)).map((s,i) => {
+                    let sc = s.status === 'paid' ? 'badge-paid' : (s.status === 'partial' ? 'badge-partial' : 'badge-unpaid');
+                    let fmt = (v) => formatByCurrency(v, s.currency);
+                    return `<tr>
+                        <td>${i+1}</td><td>${s.date}</td><td>${s.item}</td>
+                        <td><span class="badge ${s.currency==='USD'?'badge-mainclient':'badge-active'}">${s.currency}</span></td>
+                        <td>${s.qty}</td>
+                        <td>${fmt(s.sellingPrice)}</td>
+                        <td class="total-value">${fmt(s.totalPrice)}</td>
+                        <td class="status-paid">${fmt(s.paidAmount)}</td>
+                        <td class="reminder-amount">${fmt(s.unpaidAmount)}</td>
+                        <td><span class="badge ${sc}">${s.status.toUpperCase()}</span></td>
+                    </tr>`;
+                }).join('')}</tbody>
+                <tfoot>
+                    <tr class="grand-total" style="background:#f0fdf4;">
+                        <td colspan="6"><strong>Grand Total (AFG)</strong></td>
+                        <td><strong>${formatMoney(afgSummary.totalValue)}</strong></td>
+                        <td><strong>${formatMoney(afgSummary.totalPaid)}</strong></td>
+                        <td><strong>${formatMoney(afgSummary.totalUnpaid)}</strong></td>
+                        <td></td>
+                    </tr>
+                    ${usdList.length > 0 ? `<tr class="grand-total" style="background:#eff6ff;">
+                        <td colspan="6"><strong>Grand Total (USD)</strong></td>
+                        <td><strong>${formatByCurrency(usdSummary.totalValue,'USD')}</strong></td>
+                        <td><strong>${formatByCurrency(usdSummary.totalPaid,'USD')}</strong></td>
+                        <td><strong>${formatByCurrency(usdSummary.totalUnpaid,'USD')}</strong></td>
+                        <td></td>
+                    </tr>` : ''}
+                </tfoot>
+            </table></div>`
+        }`;
     document.getElementById('content').innerHTML = html;
 }
 
@@ -186,8 +247,9 @@ async function renderBranchReturns() {
         <div class="returns-section">
             <h3><i class="fas fa-undo-alt"></i> Items Received from Main Client</h3>
             <div class="table-wrapper"><table>
-                <thead><tr><th>ID</th><th>Item Name</th><th>Stock</th><th>Selling Price</th><th>Total Value</th><th>Payment Status</th><th>Action</th></tr></thead>
+                <thead><tr><th>ID</th><th>Item Name</th><th>Currency</th><th>Stock</th><th>Selling Price</th><th>Total Value</th><th>Payment Status</th><th>Action</th></tr></thead>
                 <tbody>${branchInv.map((item, index) => {
+                    let currency = getItemCurrency(item.name);
                     let originalShipment = mainClientToBranchShipments.find(s => s.branch === branch && s.item === item.name);
                     let totalValue = item.sellingPrice * item.quantity;
                     let paymentStatus = originalShipment ? getShipmentStatus(originalShipment) : 'unpaid';
@@ -198,9 +260,10 @@ async function renderBranchReturns() {
                     return `<tr>
                         <td>${index + 1}</td>
                         <td>${item.name}</td>
+                        <td><span class="badge ${currency==='USD'?'badge-mainclient':'badge-active'}">${currency}</span></td>
                         <td>${item.quantity}</td>
-                        <td>${formatMoney(item.sellingPrice)}</td>
-                        <td class="total-value">${formatMoney(totalValue)}</td>
+                        <td>${formatByCurrency(item.sellingPrice, currency)}</td>
+                        <td class="total-value">${formatByCurrency(totalValue, currency)}</td>
                         <td>${paymentBadge}</td>
                         <td>
                         ${item.quantity > 0
@@ -215,17 +278,20 @@ async function renderBranchReturns() {
 
             <h3 style="margin-top:40px;"><i class="fas fa-history"></i> Return History</h3>
             <div class="table-wrapper"><table>
-                <thead><tr><th>Date</th><th>Item Name</th><th>Quantity</th><th>Price per Unit</th><th>Refund Amount</th><th>Description</th><th>Status</th></tr></thead>
+                <thead><tr><th>Date</th><th>Item Name</th><th>Currency</th><th>Quantity</th><th>Price per Unit</th><th>Refund Amount</th><th>Description</th><th>Status</th></tr></thead>
                 <tbody>${returns.length === 0
-                    ? `<tr><td colspan="7" style="text-align:center;">No returns yet</td></tr>`
+                    ? `<tr><td colspan="8" style="text-align:center;">No returns yet</td></tr>`
                     : returns.sort((a, b) => new Date(b.date) - new Date(a.date)).map(r => {
+                        let currency = getItemCurrency(r.itemName);
                         let status = getReturnStatus(r);
                         let statusClass = status === 'paid' ? 'return-badge-paid' : (status === 'approved' ? 'return-badge-approved' : (status === 'rejected' ? 'return-badge-rejected' : 'return-badge-pending'));
                         let statusText = status === 'paid' ? '💰 PAID' : (status === 'approved' ? '✓ APPROVED' : (status === 'rejected' ? '❌ REJECTED' : '⏳ PENDING'));
                         return `<tr>
-                            <td>${r.date}</td><td>${r.itemName}</td><td>${r.quantity}</td>
-                            <td>${formatMoney(r.pricePerUnit)}</td>
-                            <td class="total-value">${formatMoney(r.refundAmount || (r.quantity * r.pricePerUnit))}</td>
+                            <td>${r.date}</td><td>${r.itemName}</td>
+                            <td><span class="badge ${currency==='USD'?'badge-mainclient':'badge-active'}">${currency}</span></td>
+                            <td>${r.quantity}</td>
+                            <td>${formatByCurrency(r.pricePerUnit, currency)}</td>
+                            <td class="total-value">${formatByCurrency(r.refundAmount || (r.quantity * r.pricePerUnit), currency)}</td>
                             <td>${r.description || '-'}</td>
                             <td><span class="${statusClass}">${statusText}</span></td>
                         </tr>`;
@@ -305,21 +371,6 @@ function renderBranchCompleteReport() {
     let branch = currentUser.username;
     let inventory = branchInventory[branch] || [];
     let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
-    let fin = branchFinance[branch] || { totalSale: 0, totalPurchase: 0, totalProfit: 0, totalExpenses: 0 };
-    let expensesList = branchExpenses[branch] || [];
-    let returns = getBranchReturns(branch);
-
-    let totalReceived = branchShipments.reduce((sum, s) => sum + (s.qty || 0), 0);
-    let totalReceivedValue = branchShipments.reduce((sum, s) => sum + ((s.sellingPrice || 0) * (s.qty || 0)), 0);
-    let currentStock = inventory.reduce((sum, i) => sum + (i.quantity || 0), 0);
-    let currentStockValue = inventory.reduce((sum, i) => sum + ((i.sellingPrice || 0) * (i.quantity || 0)), 0);
-    let totalExpenses = expensesList.reduce((sum, exp) => sum + (exp.amount || 0), 0);
-    let netProfit = fin.totalSale - totalExpenses;
-
-    let approvedReturns = returns.filter(r => r.status === 'approved' || r.status === 'paid');
-    let totalReturns = approvedReturns.reduce((sum, r) => sum + (r.quantity || 0), 0);
-    let totalReturnsValue = approvedReturns.reduce((sum, r) => sum + ((r.quantity || 0) * (r.pricePerUnit || 0)), 0);
-    let pendingReturns = returns.filter(r => r.status === 'pending').length;
 
     let html = `
         <div class="header-actions">
@@ -333,20 +384,129 @@ function renderBranchCompleteReport() {
         return;
     }
 
-        html += `
+    html += `
+        <div style="background:#f0fdf4;border-radius:16px;padding:16px;margin-bottom:20px;border:2px solid #bbf7d0;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+            <label style="color:#166534;font-weight:600;"><i class="fas fa-calendar" style="margin-right:6px;"></i>Time Period:</label>
+            <select id="branchReportTimeFilter" onchange="applyBranchTimeFilter()" style="padding:10px 16px;border:2px solid #bbf7d0;border-radius:12px;background:white;color:#166534;font-weight:600;">
+                <option value="all">All Time</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="custom">Custom Range</option>
+            </select>
+            <div id="branchReportCustomRange" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="date" id="branchReportStart" value="${getWeekAgoDate()}" style="padding:10px;border:2px solid #bbf7d0;border-radius:12px;">
+                <span style="color:#166534;">to</span>
+                <input type="date" id="branchReportEnd" value="${getTodayDate()}" style="padding:10px;border:2px solid #bbf7d0;border-radius:12px;">
+                <button onclick="applyBranchTimeFilter()" class="btn-filter" style="width:auto;margin-top:0;padding:10px 16px;">Apply</button>
+            </div>
+        </div>
         <div class="search-container">
             <div class="search-box"><i class="fas fa-search"></i>
                 <input type="text" id="productSearchInput" placeholder="Search products..." onkeyup="searchBranchProducts()">
             </div>
             <div class="search-results" id="productSearchResults">Showing ${inventory.length} products</div>
         </div>
+        <div id="branchReportDynamicContent"></div>`;
+
+    document.getElementById('content').innerHTML = html;
+    applyBranchTimeFilter();
+}
+
+window.applyBranchTimeFilter = function() {
+    let filter = document.getElementById('branchReportTimeFilter')?.value || 'all';
+    let customRange = document.getElementById('branchReportCustomRange');
+    if (customRange) customRange.style.display = filter === 'custom' ? 'flex' : 'none';
+
+    let now = new Date();
+    let startDate = new Date(2000, 0, 1), endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+
+    if (filter === 'daily') {
+        startDate = new Date(now.toDateString());
+    } else if (filter === 'weekly') {
+        startDate = new Date(now); startDate.setDate(now.getDate() - 7);
+    } else if (filter === 'monthly') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (filter === 'custom') {
+        let s = document.getElementById('branchReportStart')?.value;
+        let e = document.getElementById('branchReportEnd')?.value;
+        if (!s || !e) return;
+        startDate = new Date(s); endDate = new Date(e);
+        endDate.setHours(23, 59, 59, 999);
+    }
+
+    renderBranchReportContent(startDate, endDate, filter);
+};
+
+function renderBranchReportContent(startDate, endDate, filter) {
+    let branch = currentUser.username;
+    let inventory = branchInventory[branch] || [];
+    let allShipments = mainClientToBranchShipments.filter(s => s.branch === branch).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+    let allSales = salesHistory.filter(s => s.branch === branch).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+    let allReturns = getBranchReturns(branch).map(r => {
+        let item = mainInventory.find(mi => mi.name === r.itemName);
+        return { ...r, currency: item ? (item.currency || 'AFG') : 'AFG' };
+    });
+    let expensesList = branchExpenses[branch] || [];
+
+    let isAll = filter === 'all';
+    let filteredShipments = isAll ? allShipments : allShipments.filter(s => {
+        let d = new Date(s.date); d.setHours(0,0,0,0);
+        return d >= startDate && d <= endDate;
+    });
+    let filteredSales = isAll ? allSales : allSales.filter(s => {
+        let d = new Date(s.date); d.setHours(0,0,0,0);
+        return d >= startDate && d <= endDate;
+    });
+    let filteredReturns = isAll ? allReturns : allReturns.filter(r => {
+        let d = new Date(r.date); d.setHours(0,0,0,0);
+        return d >= startDate && d <= endDate;
+    });
+    let filteredExpenses = isAll ? expensesList : expensesList.filter(e => {
+        let d = new Date(e.date); d.setHours(0,0,0,0);
+        return d >= startDate && d <= endDate;
+    });
+
+    function buildCurrencyBlock(currency) {
+        let fmt = (v) => formatByCurrency(v, currency);
+        let inv = inventory.filter(i => getItemCurrency(i.name) === currency);
+        let currentStock = inv.reduce((sum, i) => sum + (i.quantity || 0), 0);
+        let currentStockValue = inv.reduce((sum, i) => sum + ((i.sellingPrice || 0) * (i.quantity || 0)), 0);
+
+        let shipCur = filteredShipments.filter(s => s.currency === currency);
+        let totalReceived = shipCur.reduce((sum, s) => sum + (s.qty || 0), 0);
+        let totalReceivedValue = shipCur.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
+
+        let salesCur = filteredSales.filter(s => s.currency === currency);
+        let totalSaleAmount = salesCur.reduce((sum, s) => sum + (s.revenue || 0), 0);
+
+        let returnsCur = filteredReturns.filter(r => r.currency === currency);
+        let approvedReturns = returnsCur.filter(r => r.status === 'approved' || r.status === 'paid');
+        let totalReturns = approvedReturns.reduce((sum, r) => sum + (r.quantity || 0), 0);
+        let totalReturnsValue = approvedReturns.reduce((sum, r) => sum + ((r.quantity || 0) * (r.pricePerUnit || 0)), 0);
+        let pendingReturns = returnsCur.filter(r => r.status === 'pending').length;
+
+        let expCur = filteredExpenses.filter(e => (e.currency||'AFG') === currency);
+        let totalExpenses = expCur.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+        let netProfit = totalSaleAmount - totalExpenses;
+
+        return `
         <div class="report-grid">
             <div class="report-card">
                 <h3><i class="fas fa-boxes"></i> Inventory Summary</h3>
                 <div class="report-number">${currentStock}</div>
                 <div class="report-label">Items Remaining</div>
                 <div style="margin-top:20px;">
-                    <div style="display:flex;justify-content:space-between;"><span>Stock Value (Selling):</span><span><strong>${formatMoney(currentStockValue)}</strong></span></div>
+                    <div style="display:flex;justify-content:space-between;"><span>Stock Value (Selling):</span><span><strong>${fmt(currentStockValue)}</strong></span></div>
+                </div>
+            </div>
+            <div class="report-card">
+                <h3><i class="fas fa-truck"></i> Received</h3>
+                <div class="report-number">${totalReceived}</div>
+                <div class="report-label">Items Received</div>
+                <div style="margin-top:20px;">
+                    <div style="display:flex;justify-content:space-between;"><span>Value:</span><span><strong>${fmt(totalReceivedValue)}</strong></span></div>
                 </div>
             </div>
             <div class="report-card">
@@ -354,64 +514,85 @@ function renderBranchCompleteReport() {
                 <div class="report-number">${totalReturns}</div>
                 <div class="report-label">Items Returned</div>
                 <div style="margin-top:20px;">
-                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Return Value:</span><span><strong>${formatMoney(totalReturnsValue)}</strong></span></div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Return Value:</span><span><strong>${fmt(totalReturnsValue)}</strong></span></div>
                     <div style="display:flex;justify-content:space-between;"><span>Pending Returns:</span><span><strong style="color:#f59e0b;">${pendingReturns}</strong></span></div>
                 </div>
             </div>
-        </div>`;
-
-    let branchSalesAll = salesHistory.filter(s => s.branch === branch);
-    let totalSaleAmount = branchSalesAll.reduce((sum, s) => sum + (s.revenue || 0), 0);
-
-    html += `
-        <div class="stat-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;margin-bottom:30px;">
-            <i class="fas fa-cash-register" style="color:white;"></i>
-            <h4 style="color:rgba(255,255,255,0.8);">Total Sale</h4>
-            <div class="stat-value" style="color:white;font-size:32px;">${formatMoney(totalSaleAmount)}</div>
-            <small style="color:rgba(255,255,255,0.7);">Total revenue from all sales</small>
         </div>
+        <div class="stat-card" style="background:${netProfit>=0?'linear-gradient(145deg,#22c55e,#16a34a)':'linear-gradient(145deg,#ef4444,#b91c1c)'};color:white;margin-bottom:30px;">
+            <i class="fas fa-cash-register" style="color:white;"></i>
+            <h4 style="color:rgba(255,255,255,0.8);">Total Sale / Net (Sale - Expenses)</h4>
+            <div class="stat-value" style="color:white;font-size:32px;">${fmt(totalSaleAmount)}</div>
+            <small style="color:rgba(255,255,255,0.7);">Net after expenses: ${fmt(netProfit)}</small>
+        </div>`;
+    }
+
+    let html = `
+        <h3 style="margin-bottom:15px;"><i class="fas fa-money-bill-wave"></i> Afghani (AFG)</h3>
+        ${buildCurrencyBlock('AFG')}
+        <h3 style="margin:30px 0 15px;"><i class="fas fa-dollar-sign"></i> US Dollar (USD)</h3>
+        ${buildCurrencyBlock('USD')}
 
         <h3 style="margin:30px 0 20px;">Product Details</h3>
-        <div id="productDetailsList">${renderProductDetails(inventory, branchShipments, branch)}</div>
-
+        <div id="productDetailsList">${renderProductDetails(inventory, filteredShipments, branch, allShipments)}</div>
         <h3 style="margin:30px 0 20px;">Return History</h3>
         <div class="table-wrapper"><table>
-            <thead><tr><th>Date</th><th>Item</th><th>Quantity</th><th>Price/Unit</th><th>Total Value</th><th>Description</th><th>Status</th></tr></thead>
-            <tbody>${returns.length === 0
-                ? `<tr><td colspan="7" style="text-align:center;">No returns yet</td></tr>`
-                : returns.sort((a, b) => new Date(b.date) - new Date(a.date)).map(r => `
+            <thead><tr><th>Date</th><th>Item</th><th>Currency</th><th>Quantity</th><th>Price/Unit</th><th>Total Value</th><th>Description</th><th>Status</th></tr></thead>
+            <tbody>${filteredReturns.length === 0
+                ? `<tr><td colspan="8" style="text-align:center;">No returns yet</td></tr>`
+                : filteredReturns.sort((a, b) => new Date(b.date) - new Date(a.date)).map(r => `
                     <tr>
-                        <td>${r.date}</td><td>${r.itemName}</td><td>${r.quantity}</td>
-                        <td>${formatMoney(r.pricePerUnit)}</td><td>${formatMoney(r.totalValue)}</td>
+                        <td>${r.date}</td><td>${r.itemName}</td>
+                        <td><span class="badge ${r.currency==='USD'?'badge-mainclient':'badge-active'}">${r.currency}</span></td>
+                        <td>${r.quantity}</td>
+                        <td>${formatByCurrency(r.pricePerUnit, r.currency)}</td><td>${formatByCurrency(r.totalValue, r.currency)}</td>
                         <td>${r.description || '-'}</td>
                         <td><span class="${r.status === 'paid' ? 'return-badge-paid' : (r.status === 'approved' ? 'return-badge-approved' : (r.status === 'rejected' ? 'return-badge-rejected' : 'return-badge-pending'))}">${r.status.toUpperCase()}</span></td>
                     </tr>`).join('')
             }</tbody>
         </table></div>`;
 
-    document.getElementById('content').innerHTML = html;
+    let container = document.getElementById('branchReportDynamicContent');
+    if (container) container.innerHTML = html;
 }
 
-function renderProductDetails(inventory, shipments, branch) {
-    if (!inventory || inventory.length === 0) return '<p style="text-align:center;color:#64748b;">No products in inventory</p>';
+function renderProductDetails(inventory, shipments, branch, allShipmentsForNames) {
+    let sourceForNames = allShipmentsForNames || shipments;
 
-    // group by item name تا duplicate نشود
     let groupedInventory = {};
     inventory.forEach(item => {
         if (!groupedInventory[item.name]) {
-            groupedInventory[item.name] = { ...item, quantity: 0 };
+            groupedInventory[item.name] = { name: item.name, quantity: 0 };
         }
         groupedInventory[item.name].quantity += item.quantity;
     });
 
-    return Object.values(groupedInventory).map((item, index) => {
-        let itemShipments = shipments.filter(s => s.item === item.name);
-        let totalReceived = itemShipments.reduce((sum, s) => sum + (s.qty || 0), 0);
-        let itemSales = salesHistory.filter(s => s.branch === branch && s.item === item.name);
-        let sold = itemSales.reduce((sum, s) => sum + s.qty, 0);
-        let revenue = itemSales.reduce((sum, s) => sum + s.revenue, 0);
 
-        // ریترن‌های این آیتم
+    sourceForNames.forEach(s => {
+        if (!groupedInventory[s.item]) {
+            groupedInventory[s.item] = { name: s.item, quantity: 0 };
+        }
+    });
+
+        if (Object.keys(groupedInventory).length === 0) return '<p style="text-align:center;color:#64748b;">No products in inventory</p>';
+
+        let sortedItemNames = Object.keys(groupedInventory).sort((a, b) => {
+            let shipmentsA = shipments.filter(s => s.item === a);
+            let shipmentsB = shipments.filter(s => s.item === b);
+            let latestA = shipmentsA.length > 0 ? Math.max(...shipmentsA.map(s => new Date(s.date).getTime())) : 0;
+            let latestB = shipmentsB.length > 0 ? Math.max(...shipmentsB.map(s => new Date(s.date).getTime())) : 0;
+            return latestB - latestA;
+        });
+
+        let rows = sortedItemNames.map((name, index) => {
+            let item = groupedInventory[name];        let currency = getItemCurrency(item.name);
+            let fmt = (v) => formatByCurrency(v, currency);
+
+            let itemShipments = shipments.filter(s => s.item === item.name);
+            let totalReceived = itemShipments.reduce((sum, s) => sum + (s.qty || 0), 0);
+            let itemSales = salesHistory.filter(s => s.branch === branch && s.item === item.name);
+            let sold = itemSales.reduce((sum, s) => sum + s.qty, 0);
+
         let itemReturns = branchReturns.filter(r => {
             let returnBranch = r.branch || r.branchName;
             let returnItem = r.itemName || r.item;
@@ -423,59 +604,45 @@ function renderProductDetails(inventory, shipments, branch) {
         let discount = getItemDiscount(item.name);
         let uniqueId = `product-${branch}-${item.name.replace(/\s+/g, '-')}-${index}`;
 
+        let sellingPricePerUnit = itemShipments.length > 0 ? itemShipments[itemShipments.length - 1].sellingPrice : 0;
+        let totalSellingPrice = sellingPricePerUnit * item.quantity;
+
         return `
-            <div class="product-report-card">
-                <div class="product-report-header" onclick="toggleProductDetails('${uniqueId}')">
-                    <h4>${item.name}${discount ? `<span class="discount-badge">-${discount.discountPercent}%</span>` : ''}</h4>
-                    <i class="fas fa-chevron-down" id="chevron-${uniqueId}"></i>
-                </div>
-                <div class="product-stats">
-                    <div class="stat-item"><div class="stat-label">Received</div><div class="stat-value">${totalReceived}</div></div>
-                    <div class="stat-item"><div class="stat-label">Sold</div><div class="stat-value" style="color:#22c55e;">${sold}</div></div>
-                    <div class="stat-item"><div class="stat-label">Returned</div><div class="stat-value" style="color:#f59e0b;">${returnedQty}</div></div>
-                    <div class="stat-item"><div class="stat-label">In Stock</div><div class="stat-value">${item.quantity}</div></div>
-                    <div class="stat-item"><div class="stat-label">Revenue</div><div class="stat-value profit-text">${formatMoney(revenue)}</div></div>
-                </div>
-                <div id="${uniqueId}" style="display:none;margin-top:20px;">
-                    ${itemShipments.length > 0 ? `
-                        <h5 style="margin-bottom:10px;">Shipment History</h5>
-                        <table style="width:100%;font-size:14px;border-collapse:collapse;">
-                            <thead><tr style="background:#f1f5f9;"><th style="padding:8px;">Date</th><th style="padding:8px;">Received</th><th style="padding:8px;">Selling Price</th></tr></thead>
-                            <tbody>${itemShipments.map(s => `<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:8px;">${s.date}</td><td style="padding:8px;">${s.qty}</td><td style="padding:8px;">${formatMoney(s.sellingPrice)}</td></tr>`).join('')}</tbody>
-                        </table>` : '<p style="color:#64748b;">No shipment history</p>'}
-                    ${itemSales.length > 0 ? `
-                        <h5 style="margin:15px 0 10px;">Sales History</h5>
-                        <table style="width:100%;font-size:14px;border-collapse:collapse;">
-                            <thead><tr style="background:#f1f5f9;"><th style="padding:8px;">Date</th><th style="padding:8px;">Qty</th><th style="padding:8px;">Price</th><th style="padding:8px;">Revenue</th></tr></thead>
-                            <tbody>${itemSales.map(s => `<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:8px;">${s.date}</td><td style="padding:8px;">${s.qty}</td><td style="padding:8px;">${formatMoney(s.price)}</td><td style="padding:8px;">${formatMoney(s.revenue)}</td></tr>`).join('')}</tbody>
-                        </table>` : ''}
-                </div>
-            </div>`;
-    }).join('');
+            <tr>
+                <td>${item.name}${discount ? `<span class="discount-badge">-${discount.discountPercent}%</span>` : ''}</td>
+                <td><span class="badge ${currency==='USD'?'badge-mainclient':'badge-active'}">${currency}</span></td>
+                <td>${totalReceived}</td>
+                <td style="color:#22c55e;">${sold}</td>
+                <td style="color:#f59e0b;">${returnedQty}</td>
+                <td>${item.quantity}</td>
+                <td>${fmt(sellingPricePerUnit)}</td>
+                <td class="profit-text">${fmt(totalSellingPrice)}</td>
+            </tr>`;
+    });
+
+    return `<div class="table-wrapper"><table class="inventory-table">
+        <thead><tr><th>Item Name</th><th>Currency</th><th>Received</th><th>Sold</th><th>Returned</th><th>In Stock</th><th>Selling Price/Unit</th><th>Total Selling Price</th></tr></thead>
+        <tbody>${rows.join('')}</tbody>
+    </table></div>`;
 }
 
-
-window.toggleProductDetails = function (productId) {
-    let details = document.getElementById(productId);
-    let chevron = document.getElementById(`chevron-${productId}`);
-    if (details) {
-        let isHidden = details.style.display === 'none';
-        details.style.display = isHidden ? 'block' : 'none';
-        if (chevron) {
-            chevron.classList.toggle('fa-chevron-down', !isHidden);
-            chevron.classList.toggle('fa-chevron-up', isHidden);
-        }
-    }
-};
 
 window.searchBranchProducts = function () {
     let branch = currentUser.username;
     let inventory = branchInventory[branch] || [];
-    let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
+    let allShipments = mainClientToBranchShipments.filter(s => s.branch === branch);
     let searchTerm = document.getElementById('productSearchInput').value.toLowerCase();
-    let filtered = inventory.filter(item => item.name.toLowerCase().includes(searchTerm));
-    document.getElementById('productDetailsList').innerHTML = renderProductDetails(filtered, branchShipments, branch);
-    document.getElementById('productSearchResults').innerHTML = `Showing ${filtered.length} of ${inventory.length} products`;
+
+    let namesSet = new Set();
+    inventory.forEach(i => namesSet.add(i.name));
+    allShipments.forEach(s => namesSet.add(s.item));
+    let allNames = Array.from(namesSet).filter(n => n.toLowerCase().includes(searchTerm));
+
+    let filteredInv = inventory.filter(item => allNames.includes(item.name));
+    let filteredShipmentsForNames = allShipments.filter(s => allNames.includes(s.item));
+
+    document.getElementById('productDetailsList').innerHTML = renderProductDetails(filteredInv, allShipments, branch, filteredShipmentsForNames);
+    document.getElementById('productSearchResults').innerHTML = `Showing ${allNames.length} products`;
 };
 
 function applyBranchTimeFilter() { renderBranchCompleteReport(); }

@@ -8,7 +8,7 @@ require('dotenv').config();
 const bcrypt = require('bcrypt');
 const SALT_ROUNDS = 10;
 
-// // Fix MySQL timezone issue
+// Fix MySQL timezone issue
 // const pool = mysql.createPool({
 //     host: process.env.DB_HOST || 'localhost',
 //     user: process.env.DB_USER || 'root',
@@ -26,7 +26,7 @@ const SALT_ROUNDS = 10;
 //     console.error('MySQL connection error:', err);
 // });
 
-// // MySQL connection pool (Aiven / production ready)
+// // // MySQL connection pool (Aiven / production ready)
 
 const ca_path = process.env.CA || '/etc/secrets/ca.pem';
 const pool = mysql.createPool({
@@ -78,6 +78,30 @@ pool.getConnection()
                 )
             `);
             console.log('payments_to_admin table ready');
+            try {
+            await pool.query(`ALTER TABLE main_inventory ADD COLUMN currency VARCHAR(3) NOT NULL DEFAULT 'AFG'`);
+            console.log('main_inventory.currency column ready');
+            } catch (err) {
+                if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding currency to main_inventory:', err.message);
+            }
+            try {
+                await pool.query(`ALTER TABLE main_client_items ADD COLUMN currency VARCHAR(3) NOT NULL DEFAULT 'AFG'`);
+                console.log('main_client_items.currency column ready');
+            } catch (err) {
+                if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding currency to main_client_items:', err.message);
+            }
+            try {
+                await pool.query(`ALTER TABLE expenses ADD COLUMN currency VARCHAR(3) NOT NULL DEFAULT 'AFG'`);
+                console.log('expenses.currency column ready');
+            } catch (err) {
+                if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding currency to expenses:', err.message);
+            }
+            try {
+            await pool.query(`ALTER TABLE payments_to_admin ADD COLUMN currency VARCHAR(3) NOT NULL DEFAULT 'AFG'`);
+            console.log('payments_to_admin.currency column ready');
+        } catch (err) {
+            if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding currency to payments_to_admin:', err.message);
+        }
         } catch (err) {
             console.error('Error creating table:', err);
         }
@@ -109,19 +133,19 @@ app.get('/api/inventory', async (req, res) => {
     }
 });
 
-
 app.post('/api/inventory', async (req, res) => {
-    const { name, purchase_price, selling_price, quantity, supplier, date } = req.body;
+    const { name, purchase_price, selling_price, quantity, supplier, date, currency } = req.body;
+    const cur = currency === 'USD' ? 'USD' : 'AFG';
     try {
         const [result] = await pool.execute(
-            'INSERT INTO main_inventory (name, purchase_price, selling_price, quantity, supplier, date) VALUES (?, ?, ?, ?, ?, ?)',
-            [name, purchase_price, selling_price, quantity, supplier, date]
+            'INSERT INTO main_inventory (name, purchase_price, selling_price, quantity, supplier, date, currency) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [name, purchase_price, selling_price, quantity, supplier, date, cur]
         );
 
         // Also add to main_client_items
         await pool.execute(
-            'INSERT INTO main_client_items (name, selling_price, purchase_price, quantity, supplier, date) VALUES (?, ?, ?, ?, ?, ?)',
-            [name, selling_price, purchase_price, quantity, supplier, date]
+            'INSERT INTO main_client_items (name, selling_price, purchase_price, quantity, supplier, date, currency) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [name, selling_price, purchase_price, quantity, supplier, date, cur]
         );
 
         const [rows] = await pool.execute('SELECT * FROM main_inventory WHERE id = ?', [result.insertId]);
@@ -133,8 +157,9 @@ app.post('/api/inventory', async (req, res) => {
 
 app.put('/api/inventory/:id', async (req, res) => {
     const { id } = req.params;
-    const { name, purchase_price, selling_price, quantity, supplier, date } = req.body;
-    console.log(`Updating inventory item ${id}:`, { name, purchase_price, selling_price, quantity, supplier, date });
+    const { name, purchase_price, selling_price, quantity, supplier, date, currency } = req.body;
+    const cur = currency === 'USD' ? 'USD' : 'AFG';
+    console.log(`Updating inventory item ${id}:`, { name, purchase_price, selling_price, quantity, supplier, date, currency: cur });
 
     try {
         const [existingItem] = await pool.execute('SELECT * FROM main_inventory WHERE id = ?', [id]);
@@ -143,15 +168,14 @@ app.put('/api/inventory/:id', async (req, res) => {
         }
 
         await pool.execute(
-            'UPDATE main_inventory SET name = ?, purchase_price = ?, selling_price = ?, quantity = ?, supplier = ?, date = ? WHERE id = ?',
-            [name, purchase_price, selling_price, quantity, supplier, date, id]
+            'UPDATE main_inventory SET name = ?, purchase_price = ?, selling_price = ?, quantity = ?, supplier = ?, date = ?, currency = ? WHERE id = ?',
+            [name, purchase_price, selling_price, quantity, supplier, date, cur, id]
         );
 
         await pool.execute(
-            'UPDATE main_client_items SET name = ?, selling_price = ?, purchase_price = ?, quantity = ?, supplier = ?, date = ? WHERE id = ?',
-            [name, selling_price, purchase_price, quantity, supplier, date, id]
+            'UPDATE main_client_items SET name = ?, selling_price = ?, purchase_price = ?, quantity = ?, supplier = ?, date = ?, currency = ? WHERE id = ?',
+            [name, selling_price, purchase_price, quantity, supplier, date, cur, id]
         );
-
         const [rows] = await pool.execute('SELECT * FROM main_inventory WHERE id = ?', [id]);
         console.log('Item updated:', rows[0]);
         res.json(rows[0]);
@@ -161,16 +185,48 @@ app.put('/api/inventory/:id', async (req, res) => {
     }
 });
 
+
 app.delete('/api/inventory/:id', async (req, res) => {
     const { id } = req.params;
     try {
         const [item] = await pool.execute('SELECT name FROM main_inventory WHERE id = ?', [id]);
-        await pool.execute('DELETE FROM main_inventory WHERE id = ?', [id]);
-        if (item[0]) {
-            await pool.execute('DELETE FROM main_client_items WHERE name = ?', [item[0].name]);
+        if (item.length === 0) {
+            return res.status(404).json({ error: 'Item not found' });
         }
+        const itemName = item[0].name;
+
+        const [shipmentRows] = await pool.execute(
+            'SELECT unique_key FROM shipments_to_branches WHERE item = ?',
+            [itemName]
+        );
+        for (const s of shipmentRows) {
+            if (s.unique_key) {
+                await pool.execute('DELETE FROM shipment_payments WHERE shipment_id = ?', [s.unique_key]);
+            }
+        }
+        try {
+            await pool.execute('DELETE FROM shipment_reminders WHERE item_name = ?', [itemName]);
+        } catch (e) { console.log('shipment_reminders cleanup:', e.message); }
+
+        await pool.execute('DELETE FROM shipments_to_branches WHERE item = ?', [itemName]);
+        await pool.execute('DELETE FROM branch_inventory WHERE item_name = ?', [itemName]);
+        await pool.execute('DELETE FROM sales_history WHERE item = ?', [itemName]);
+        await pool.execute('DELETE FROM low_stock_alerts WHERE item_name = ?', [itemName]);
+        await pool.execute('DELETE FROM branch_returns WHERE item_name = ?', [itemName]);
+        await pool.execute('DELETE FROM discounts WHERE item_name = ?', [itemName]);
+        await pool.execute('DELETE FROM main_client_distributed WHERE item_name = ?', [itemName]);
+        await pool.execute('DELETE FROM main_client_payments WHERE item_name = ?', [itemName]);
+
+        try {
+            await pool.execute('DELETE FROM invoice_items WHERE item_name = ?', [itemName]);
+        } catch (e) { console.log('invoice_items cleanup:', e.message); }
+
+        await pool.execute('DELETE FROM main_client_items WHERE name = ?', [itemName]);
+        await pool.execute('DELETE FROM main_inventory WHERE id = ?', [id]);
+
         res.json({ message: 'Item deleted successfully' });
     } catch (err) {
+        console.error('Error deleting item:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -473,14 +529,14 @@ app.post('/api/shipments', async (req, res) => {
 
 // ============= EXPENSES API =============
 
-
 app.post('/api/expenses', async (req, res) => {
-    const { date, category, amount, description, user_role, username } = req.body;
+    const { date, category, amount, description, user_role, username, currency } = req.body;
+    const cur = currency === 'USD' ? 'USD' : 'AFG';
     try {
         const [result] = await pool.execute(
-            `INSERT INTO expenses (date, category, amount, description, user_role, username) 
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [date, category, amount, description, user_role, username]
+            `INSERT INTO expenses (date, category, amount, description, user_role, username, currency) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [date, category, amount, description, user_role, username, cur]
         );
 
         const [rows] = await pool.execute('SELECT * FROM expenses WHERE id = ?', [result.insertId]);
@@ -727,53 +783,59 @@ app.delete('/api/users/:id/hard', async (req, res) => {
 
         console.log(`Hard deleting user: ${user.username} with role: ${user.role}`);
 
+
         if (user.role === 'branch') {
         console.log(`Deleting all data for branch: ${user.username}`);
-        
-        try { await pool.execute('DELETE FROM branch_inventory WHERE branch = ?', [user.username]); } catch(e) { console.log('branch_inventory:', e.message); }
-        try { await pool.execute('DELETE FROM branch_inventory WHERE branch = ?', [user.username.trim()]); } catch(e) {}
-        
-        try { await pool.execute('DELETE FROM shipments_to_branches WHERE branch = ?', [user.username]); } catch(e) { console.log('shipments:', e.message); }
-        try { await pool.execute('DELETE FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) {}
-        
-        try { await pool.execute('DELETE FROM sales_history WHERE branch = ?', [user.username]); } catch(e) { console.log('sales:', e.message); }
-        try { await pool.execute('DELETE FROM sales_history WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) {}
-        
-        try { await pool.execute('DELETE FROM branch_returns WHERE branch = ?', [user.username]); } catch(e) { console.log('returns:', e.message); }
-        try { await pool.execute('DELETE FROM branch_returns WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) {}
-        
-        try { await pool.execute('DELETE FROM shipment_reminders WHERE branch = ?', [user.username]); } catch(e) { console.log('reminders:', e.message); }
-        
-        try { 
-            const [shipmentKeys] = await pool.execute(
-                'SELECT unique_key FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?)', 
+
+        let shipmentKeys = [];
+        try {
+            const [rows] = await pool.execute(
+                'SELECT unique_key, item, qty FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?)',
                 [user.username]
             );
+            shipmentKeys = rows;
+        } catch(e) { console.log('shipment lookup:', e.message); }
+
+        try {
             for (const sk of shipmentKeys) {
-                await pool.execute('DELETE FROM shipment_payments WHERE shipment_id = ?', [sk.unique_key]);
+                if (sk.unique_key) {
+                    await pool.execute('DELETE FROM shipment_payments WHERE shipment_id = ?', [sk.unique_key]);
+                }
             }
         } catch(e) { console.log('shipment_payments:', e.message); }
-        
-        try { await pool.execute('DELETE FROM expenses WHERE user_role = ? AND username = ?', ['branch', user.username]); } catch(e) {}
-        try { await pool.execute('DELETE FROM expenses WHERE user_role = ? AND LOWER(TRIM(username)) = LOWER(?)', ['branch', user.username]); } catch(e) {}
-        
-        try { await pool.execute('DELETE FROM low_stock_alerts WHERE branch = ?', [user.username]); } catch(e) {}
-        
+
         try {
-            const [sentItems] = await pool.execute(
-                'SELECT item, SUM(qty) as total_qty FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?) GROUP BY item',
-                [user.username]
-            );
-            for (const item of sentItems) {
+            const totals = {};
+            for (const sk of shipmentKeys) {
+                let key = sk.item.trim().toLowerCase();
+                totals[key] = (totals[key] || 0) + (parseInt(sk.qty) || 0);
+            }
+            for (const key in totals) {
                 await pool.execute(
                     `UPDATE main_client_distributed 
                     SET distributed_quantity = GREATEST(0, distributed_quantity - ?)
                     WHERE LOWER(TRIM(item_name)) = LOWER(?)`,
-                    [item.total_qty, item.item]
+                    [totals[key], key]
                 );
             }
         } catch(e) { console.log('distributed update:', e.message); }
-        
+
+        try {
+            const [invRows] = await pool.execute('SELECT id FROM invoices WHERE branch = ?', [user.username]);
+            for (const inv of invRows) {
+                await pool.execute('DELETE FROM invoice_items WHERE invoice_id = ?', [inv.id]);
+            }
+            await pool.execute('DELETE FROM invoices WHERE branch = ?', [user.username]);
+        } catch(e) { console.log('invoices cleanup:', e.message); }
+
+        try { await pool.execute('DELETE FROM branch_inventory WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) { console.log('branch_inventory:', e.message); }
+        try { await pool.execute('DELETE FROM shipments_to_branches WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) { console.log('shipments:', e.message); }
+        try { await pool.execute('DELETE FROM sales_history WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) { console.log('sales:', e.message); }
+        try { await pool.execute('DELETE FROM branch_returns WHERE LOWER(TRIM(branch)) = LOWER(?)', [user.username]); } catch(e) { console.log('returns:', e.message); }
+        try { await pool.execute('DELETE FROM shipment_reminders WHERE branch = ?', [user.username]); } catch(e) { console.log('reminders:', e.message); }
+        try { await pool.execute('DELETE FROM expenses WHERE user_role = ? AND LOWER(TRIM(username)) = LOWER(?)', ['branch', user.username]); } catch(e) {}
+        try { await pool.execute('DELETE FROM low_stock_alerts WHERE branch = ?', [user.username]); } catch(e) {}
+
         console.log(`All data deleted for branch: ${user.username}`);
 
         } else if (user.role === 'mainclient') {
@@ -871,15 +933,15 @@ app.delete('/api/main-client-distributed/:mainClient', async (req, res) => {
     }
 });
 
-// Update expense
 app.put('/api/expenses/:id', async (req, res) => {
     const { id } = req.params;
-    const { date, category, amount, description, user_role, username } = req.body;
+    const { date, category, amount, description, user_role, username, currency } = req.body;
+    const cur = currency === 'USD' ? 'USD' : 'AFG';
     try {
         await pool.execute(
-            `UPDATE expenses SET date = ?, category = ?, amount = ?, description = ?, user_role = ?, username = ? 
+            `UPDATE expenses SET date = ?, category = ?, amount = ?, description = ?, user_role = ?, username = ?, currency = ? 
              WHERE id = ?`,
-            [date, category, amount, description, user_role, username, id]
+            [date, category, amount, description, user_role, username, cur, id]
         );
 
         const [rows] = await pool.execute('SELECT * FROM expenses WHERE id = ?', [id]);
@@ -1381,39 +1443,17 @@ app.delete('/api/invoices/:id', async (req, res) => {
 });
 
 // ============= DISCOUNTS API =============
+
 app.get('/api/discounts', async (req, res) => {
     try {
         const [rows] = await pool.execute('SELECT * FROM discounts ORDER BY applied_date DESC');
         res.json(rows);
     } catch (err) {
-        console.error('Error in GET /api/discounts:', err);
-        res.status(500).json({ error: err.message });
+        console.error('Error in GET /api/discounts:', err.message);
+        res.json([]);
     }
 });
 
-app.post('/api/discounts', async (req, res) => {
-    const { item_name, discount_percent, discount_amount, is_percent, new_price, original_price, applied_date } = req.body;
-    try {
-        await pool.execute(
-            `INSERT INTO discounts (item_name, discount_percent, discount_amount, is_percent, new_price, original_price, applied_date)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-                discount_percent = VALUES(discount_percent),
-                discount_amount = VALUES(discount_amount),
-                is_percent = VALUES(is_percent),
-                new_price = VALUES(new_price),
-                original_price = VALUES(original_price),
-                applied_date = VALUES(applied_date)`,
-            [item_name, discount_percent, discount_amount, is_percent, new_price, original_price, applied_date]
-        );
-
-        const [rows] = await pool.execute('SELECT * FROM discounts WHERE item_name = ?', [item_name]);
-        res.json(rows[0]);
-    } catch (err) {
-        console.error('Error in POST /api/discounts:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
 
 app.delete('/api/discounts/:itemName', async (req, res) => {
     const { itemName } = req.params;
@@ -1426,6 +1466,24 @@ app.delete('/api/discounts/:itemName', async (req, res) => {
     }
 });
 
+app.post('/api/discounts', async (req, res) => {
+    const { item_name, discount_percent, discount_amount, is_percent, new_price, original_price, applied_date } = req.body;
+    try {
+        await pool.execute(
+            `INSERT INTO discounts (item_name, discount_percent, discount_amount, is_percent, new_price, original_price, applied_date)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE 
+             discount_percent=VALUES(discount_percent), discount_amount=VALUES(discount_amount),
+             is_percent=VALUES(is_percent), new_price=VALUES(new_price), 
+             original_price=VALUES(original_price), applied_date=VALUES(applied_date)`,
+            [item_name, discount_percent, discount_amount || null, is_percent ? 1 : 0, new_price, original_price, applied_date || new Date().toISOString().split('T')[0]]
+        );
+        const [rows] = await pool.execute('SELECT * FROM discounts WHERE item_name = ?', [item_name]);
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // Serve static files (frontend)
 app.use(express.static(path.join(__dirname, '.')));
@@ -1463,13 +1521,13 @@ app.get('/api/payments-to-admin/:mainClient', async (req, res) => {
     }
 });
 
-
 app.post('/api/payments-to-admin', async (req, res) => {
-    const { main_client, amount, description, date } = req.body;
+    const { main_client, amount, description, date, currency } = req.body;
+    const cur = currency === 'USD' ? 'USD' : 'AFG';
     try {
         const [result] = await pool.execute(
-            'INSERT INTO payments_to_admin (main_client, amount, description, date, status) VALUES (?, ?, ?, ?, ?)',
-            [main_client, amount, description || null, date, 'unpaid']
+            'INSERT INTO payments_to_admin (main_client, amount, description, date, status, currency) VALUES (?, ?, ?, ?, ?, ?)',
+            [main_client, amount, description || null, date, 'unpaid', cur]
         );
         const [rows] = await pool.execute('SELECT * FROM payments_to_admin WHERE id = ?', [result.insertId]);
         res.json(rows[0]);
@@ -1493,14 +1551,23 @@ app.put('/api/payments-to-admin/:id/status', async (req, res) => {
     }
 });
 
+
 app.put('/api/payments-to-admin/:id', async (req, res) => {
     const { id } = req.params;
-    const { amount, description, status } = req.body;
+    const { amount, description, status, currency } = req.body;
     try {
-        await pool.execute(
-            'UPDATE payments_to_admin SET amount = ?, description = ?, status = ? WHERE id = ?',
-            [amount, description || null, status || 'unpaid', id]
-        );
+        if (currency !== undefined) {
+            const cur = currency === 'USD' ? 'USD' : 'AFG';
+            await pool.execute(
+                'UPDATE payments_to_admin SET amount = ?, description = ?, status = ?, currency = ? WHERE id = ?',
+                [amount, description || null, status || 'unpaid', cur, id]
+            );
+        } else {
+            await pool.execute(
+                'UPDATE payments_to_admin SET amount = ?, description = ?, status = ? WHERE id = ?',
+                [amount, description || null, status || 'unpaid', id]
+            );
+        }
         const [rows] = await pool.execute('SELECT * FROM payments_to_admin WHERE id = ?', [id]);
         res.json(rows[0]);
     } catch (err) {

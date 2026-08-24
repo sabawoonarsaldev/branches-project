@@ -144,8 +144,7 @@ window.mainClientDeleteUser = async function (id) {
 };
 
 // ==================== MAIN CLIENT SHIPMENTS ====================
-function renderMainClientShipments() {
-    let branches = getBranchUsers();
+window.renderMainClientShipments = async function() {    let branches = getBranchUsers();
     document.getElementById('content').innerHTML = `
         <div class="header-actions">
             <h2 class="page-title">Shipment History to Branches</h2>
@@ -163,10 +162,31 @@ function renderMainClientShipments() {
             </div>
         </div>
         <div id="shipmentsListContainer"></div>`;
-    loadMainClientShipments();
+    await loadMainClientShipments();
 }
 
-window.loadMainClientShipments = function () {
+window.loadMainClientShipments = async function () {
+    try {
+        const allSalesRes = await fetch('/api/sales/all');
+        if (allSalesRes.ok) {
+            const allSalesData = await allSalesRes.json();
+            salesHistory = allSalesData.map(s => ({
+                id: s.id,
+                date: s.date ? s.date.split('T')[0] : getTodayDate(),
+                branch: s.branch,
+                item: s.item,
+                qty: parseInt(s.qty),
+                price: parseFloat(s.price),
+                purchasePrice: parseFloat(s.purchase_price),
+                revenue: parseFloat(s.revenue),
+                cost: parseFloat(s.cost),
+                profit: parseFloat(s.profit),
+                billNumber: s.bill_number,
+                customer_name: s.customer_name || ''
+            }));
+        }
+    } catch (err) { console.log('Error loading sales history:', err); }
+
     let branch = document.getElementById('shipmentBranchFilter')?.value || '';
     let searchTerm = document.getElementById('shipmentSearchInput')?.value.toLowerCase() || '';
     let shipments = mainClientToBranchShipments
@@ -177,21 +197,53 @@ window.loadMainClientShipments = function () {
             reminder: getShipmentReminder(s),
             paidAmount: getShipmentPaidAmount(s),
             status: getShipmentStatus(s),
-            totalPrice: s.sellingPrice * s.qty
+            totalPrice: getShipmentCorrectTotal(s)
         }));
-    displayMainClientShipments(shipments);
+    await displayMainClientShipments(shipments);
 };
 
-window.filterMainClientShipments = function () { loadMainClientShipments(); };
 
-function displayMainClientShipments(shipments) {
+window.filterMainClientShipments = async function () { await loadMainClientShipments(); };
+
+
+async function displayMainClientShipments(shipments) {        try {
+        const discRes = await fetch('/api/discounts');
+        if (discRes.ok) {
+            const discData = await discRes.json();
+            itemDiscounts = {};
+            for (const d of discData) {
+                itemDiscounts[d.item_name] = {
+                    discountPercent: parseFloat(d.discount_percent),
+                    newPrice: parseFloat(d.new_price),
+                    originalPrice: parseFloat(d.original_price),
+                    isPercent: d.is_percent === 1,
+                    appliedDate: d.applied_date
+                };
+            }
+            for (let item of mainInventory) {
+                let discount = itemDiscounts[item.name];
+                if (discount) { item.sellingPrice = discount.newPrice; item.selling_price = discount.newPrice; }
+            }
+            for (let item of mainClientItems) {
+                let discount = itemDiscounts[item.name];
+                if (discount) { item.sellingPrice = discount.newPrice; item.selling_price = discount.newPrice; }
+            }
+            for (let s of mainClientToBranchShipments) {
+                let discount = itemDiscounts[s.item];
+                if (discount) { s._discountedPrice = discount.newPrice; s._originalPrice = discount.originalPrice; }
+            }
+        }
+    } catch(err) { console.log('Error loading discounts:', err); }
+
     let html = '';
     if (shipments.length === 0) {
         html = `<div class="empty-state"><i class="fas fa-truck"></i><h3>No Shipments Found</h3><p>No shipments match your filter criteria.</p></div>`;
     } else {
         html = `<div class="table-wrapper"><table>
-            <thead><tr><th>Date</th><th>Branch</th><th>Item</th><th>Quantity</th><th>Selling Price</th><th>Total Price</th><th>Paid Amount</th><th>Reminder</th><th>Status</th><th>Received</th></tr></thead>
+            <thead><tr><th>Date</th><th>Branch</th><th>Item</th><th>Currency</th><th>Quantity</th><th>Selling Price</th><th>Total Price</th><th>Paid Amount</th><th>Reminder</th><th>Status</th><th>Received</th></tr></thead>
             <tbody>${shipments.sort((a, b) => new Date(b.date) - new Date(a.date)).map(s => {
+                let currency = getItemCurrency(s.item);
+                let fmt = (v) => formatByCurrency(v, currency);
                 let shipmentId = generateMainClientToBranchShipmentId(s);
                 let isReceived = shipmentReminders[shipmentId + '_received'] === true ||
                     (s.uniqueKey && shipmentReminders[s.uniqueKey + '_received'] === true) ||
@@ -201,11 +253,21 @@ function displayMainClientShipments(shipments) {
                     : '<span style="color:#ef4444;font-size:16px;"><i class="fas fa-times-circle"></i> No</span>';
                 let sc = s.status === 'paid' ? 'badge-paid' : (s.status === 'partial' ? 'badge-partial' : 'badge-unpaid');
                 return `<tr>
-                    <td>${s.date}</td><td>${s.branch}</td><td>${s.item}</td><td>${s.qty}</td>
-                    <td>${formatMoney(s.sellingPrice)}</td>
-                    <td class="total-value">${formatMoney(s.sellingPrice * s.qty)}</td>
-                    <td class="status-paid">${formatMoney(s.paidAmount)}</td>
-                    <td class="reminder-amount">${formatMoney(s.reminder)}</td>
+                    <td>${s.date}</td><td>${s.branch}</td><td>${s.item}</td>
+                    <td><span class="badge ${currency === 'USD' ? 'badge-mainclient' : 'badge-active'}">${currency}</span></td>
+                    <td>${s.qty}</td>
+
+                    <td>${(() => {
+    let discount = getItemDiscount(s.item);
+    let isPaid = getShipmentStatus(s) === 'paid';
+    if (discount && !isPaid) {
+        return `<span style="text-decoration:line-through;color:#94a3b8;font-size:12px;">${fmt(discount.originalPrice)}</span><br><span style="color:#22c55e;font-weight:600;">${fmt(discount.newPrice)}</span>`;
+    }
+    return fmt(s.sellingPrice);
+})()}</td>
+                    <td class="total-value">${fmt(s.sellingPrice * s.qty)}</td>
+                    <td class="status-paid">${fmt(s.paidAmount)}</td>
+                    <td class="reminder-amount">${fmt(s.reminder)}</td>
                     <td><span class="badge ${sc}">${s.status.toUpperCase()}</span></td>
                     <td>${receivedIcon}</td>
                 </tr>`;
@@ -214,6 +276,7 @@ function displayMainClientShipments(shipments) {
     }
     document.getElementById('shipmentsListContainer').innerHTML = html;
 }
+
 
 // ==================== MAIN CLIENT ALERTS ====================
 async function renderMainClientAlerts() {
@@ -298,16 +361,18 @@ function renderMainClientReturns() {
             </div>
         </div>
         <div class="table-wrapper"><table id="returnsTable">
-            <thead><tr><th>Date</th><th>Branch</th><th>Item Name</th><th>Quantity</th><th>Price/Unit</th><th>Total Value</th><th>Description</th><th>Status</th><th>Action</th></tr></thead>
+            <thead><tr><th>Date</th><th>Branch</th><th>Item Name</th><th>Currency</th><th>Quantity</th><th>Price/Unit</th><th>Total Value</th><th>Description</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>${returns.length === 0
-                ? `<tr><td colspan="9" style="text-align:center;">No return requests yet</td></tr>`
+                ? `<tr><td colspan="10" style="text-align:center;">No return requests yet</td></tr>`
                 : returns.sort((a, b) => new Date(b.date) - new Date(a.date)).map(r => {
+                    let currency = getItemCurrency(r.itemName);
                     let statusClass = r.status === 'paid' ? 'return-badge-paid' : (r.status === 'approved' ? 'return-badge-approved' : (r.status === 'rejected' ? 'return-badge-rejected' : 'return-badge-pending'));
                     let statusText = r.status === 'paid' ? 'PAID' : (r.status === 'approved' ? 'APPROVED' : (r.status === 'rejected' ? 'REJECTED' : 'PENDING'));
                     return `<tr data-branch="${r.branch}" data-status="${r.status}">
                         <td>${r.date}</td><td>${r.branch}</td><td>${r.itemName}</td>
-                        <td>${r.quantity}</td><td>${formatMoney(r.pricePerUnit)}</td>
-                        <td>${formatMoney(r.totalValue)}</td><td>${r.description || '-'}</td>
+                        <td><span class="badge ${currency==='USD'?'badge-mainclient':'badge-active'}">${currency}</span></td>
+                        <td>${r.quantity}</td><td>${formatByCurrency(r.pricePerUnit, currency)}</td>
+                        <td>${formatByCurrency(r.totalValue, currency)}</td><td>${r.description || '-'}</td>
                         <td><span class="${statusClass}">${statusText}</span></td>
                         <td>${r.status === 'pending'
                             ? `<button class="btn btn-success" onclick="approveReturn(${r.id})"><i class="fas fa-check"></i> Approve</button>
@@ -446,7 +511,7 @@ function renderBranchHistory() {
         html += `<div class="empty-state"><i class="fas fa-history"></i><h3>No Items Yet</h3></div>`;
     } else {
         html += `<div class="table-wrapper"><table>
-            <thead><tr><th>Item Name</th><th>Date</th><th>Stock</th><th>Selling Price</th><th>Total Selling Price</th></tr></thead>
+            <thead><tr><th>Item Name</th><th>Currency</th><th>Date</th><th>Stock</th><th>Selling Price</th><th>Total Selling Price</th></tr></thead>
             <tbody id="branchHistoryTableBody">${renderBranchHistoryRows(items)}</tbody>
         </table></div>`;
     }
@@ -454,12 +519,26 @@ function renderBranchHistory() {
 }
 
 function renderBranchHistoryRows(items) {
+    let branch = currentUser.username;
     return items.map(item => {
-        let totalSellingPrice = (item.sellingPrice || 0) * (item.quantity || 0);
+        let currency = getItemCurrency(item.name);
+        let discount = getItemDiscount(item.name);
+        let currentPrice = item.sellingPrice || 0;
+        let originalPrice = discount ? parseFloat(discount.originalPrice) : currentPrice;
+        let originalStock = item.originalQuantity || item.quantity || 0;
+
+        let soldQty = salesHistory
+            .filter(s => s.branch === branch && s.item === item.name)
+            .reduce((sum, s) => sum + (parseInt(s.qty) || 0), 0);
+        let actualSoldQty = Math.min(soldQty, originalStock);
+
+        let totalSellingPrice = (actualSoldQty * originalPrice) + ((item.quantity || 0) * currentPrice);
         let shipmentDate = item.shipmentDate || item.distributionDate || getTodayDate();
         return `<tr>
-            <td>${escapeHtml(item.name)}</td><td>${shipmentDate}</td><td>${item.quantity}</td>
-            <td>${formatMoney(item.sellingPrice)}</td><td>${formatMoney(totalSellingPrice)}</td>
+            <td>${escapeHtml(item.name)}</td>
+            <td><span class="badge ${currency === 'USD' ? 'badge-mainclient' : 'badge-active'}">${currency}</span></td>
+            <td>${shipmentDate}</td><td>${item.quantity}</td>
+            <td>${formatByCurrency(item.sellingPrice, currency)}</td><td>${formatByCurrency(totalSellingPrice, currency)}</td>
         </tr>`;
     }).join('');
 }

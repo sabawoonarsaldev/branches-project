@@ -27,7 +27,7 @@ async function renderBranchInventory() {
             html += `<div class="alert-box"><i class="fas fa-exclamation-triangle"></i><strong>Warning:</strong> You have ${lowStockItems.length} item(s) with low stock</div>`;
         }
         html += `<div class="table-wrapper"><table class="inventory-table">
-            <thead><tr><th>#</th><th>Item Name</th><th>Initial Stock</th><th>Current Stock</th><th>Selling Price</th><th>Discount</th><th>Total Value</th><th>Payment Status</th><th>Remaining Payment</th><th>Receive Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>#</th><th>Item Name</th><th>Currency</th><th>Initial Stock</th><th>Current Stock</th><th>Selling Price</th><th>Discount</th><th>Total Value</th><th>Payment Status</th><th>Remaining Payment</th><th>Receive Status</th><th>Actions</th></tr></thead>
             <tbody id="branchInventoryTableBody">${renderBranchInventoryRows(items)}</tbody>
         </table></div>`;
     }
@@ -36,9 +36,10 @@ async function renderBranchInventory() {
 
 function renderBranchInventoryRows(items) {
     let branch = currentUser.username;
-    if (!items || items.length === 0) return '<tr><td colspan="11" style="text-align:center;">No items in inventory</td></tr>';
+    if (!items || items.length === 0) return '<tr><td colspan="12" style="text-align:center;">No items in inventory</td></tr>';
 
     return items.map((item, index) => {
+        let currency = getItemCurrency(item.name);
         let isLowStock = item.quantity < 10;
         let discount = getItemDiscount(item.name);
         let currentStock = item.quantity;
@@ -60,10 +61,13 @@ function renderBranchInventoryRows(items) {
 
         let paymentBadge = isPaid ? '<span class="badge badge-paid">PAID</span>' : (paymentStatus === 'partial' ? '<span class="badge badge-partial">PARTIAL</span>' : '<span class="badge badge-unpaid">UNPAID</span>');
 
+
         let remainingValue = 0;
         if (originalShipment) {
-            let totalPrice = (originalShipment.sellingPrice || 0) * (originalShipment.qty || 0);
-            remainingValue = Math.max(0, totalPrice - getShipmentPaidAmount(originalShipment));
+            let correctTotal = getShipmentCorrectTotal(originalShipment);
+            let paidAmount = (originalShipment.uniqueKey && shipmentPayments[originalShipment.uniqueKey] !== undefined)
+                ? shipmentPayments[originalShipment.uniqueKey] : 0;
+            remainingValue = Math.max(0, correctTotal - paidAmount);
         }
 
         let receiveBadge = isMarkedReceived
@@ -83,6 +87,7 @@ function renderBranchInventoryRows(items) {
                 <br><small style="color:#64748b;">ID: ${uniqueId.substring(0, 8)}...</small>
                 <br><small style="color:#64748b;">Received: ${shipmentDate}</small>
             </td>
+            <td><span class="badge ${currency === 'USD' ? 'badge-mainclient' : 'badge-active'}">${currency}</span></td>
             <td class="original-stock" style="background:#f0fdf4;font-weight:bold;"><strong>${initialStock}</strong> <small>(Initial)</small></td>
             <td class="remaining-stock" style="background:#fef3c7;">
                 <strong>${currentStock}</strong> <small>(Current)</small>
@@ -90,11 +95,11 @@ function renderBranchInventoryRows(items) {
                     <div style="width:${remainingPercent}%;background:${stockBarColor};border-radius:10px;height:6px;"></div>
                 </div>
             </td>
-            <td>${formatMoney(item.sellingPrice)}</td>
+            <td>${formatByCurrency(item.sellingPrice, currency)}</td>
             <td>${discount ? `<span class="discount-badge">-${discount.discountPercent}%</span>` : '-'}</td>
-            <td class="total-value">${formatMoney(totalValue)}</td>
+            <td class="total-value">${formatByCurrency(totalValue, currency)}</td>
             <td>${paymentBadge}</td>
-            <td class="reminder-amount ${remainingValue > 0 ? 'unpaid-value' : 'paid-value'}">${formatMoney(remainingValue)}</td>
+            <td class="reminder-amount ${remainingValue > 0 ? 'unpaid-value' : 'paid-value'}">${formatByCurrency(remainingValue, currency)}</td>
             <td style="text-align:center;">${receiveBadge}</td>
             <td>
                 ${!isMarkedReceived
@@ -194,11 +199,12 @@ async function renderBranchSale() {
     } else {
         let options = groupedItemsArray.map(i => {
             let discount = getItemDiscount(i.name);
+            let currency = getItemCurrency(i.name);
             let displayPrice = i.sellingPrice;
             let originalPrice = discount ? discount.originalPrice : i.sellingPrice;
-            let priceDisplay = discount ? `${formatMoney(originalPrice)} → ${formatMoney(displayPrice)}` : formatMoney(displayPrice);
-            return `<option value="${i.id}" data-price="${displayPrice}" data-original="${originalPrice}" data-purchase="${i.purchasePrice}" data-name="${i.name}" data-quantity="${i.quantity}" data-discount="${discount ? discount.discountPercent : 0}">
-                ${i.name} (Stock: ${i.quantity}) - ${priceDisplay}${discount ? ` [${discount.discountPercent}% OFF]` : ''}
+            let priceDisplay = discount ? `${formatByCurrency(originalPrice,currency)} → ${formatByCurrency(displayPrice,currency)}` : formatByCurrency(displayPrice,currency);
+            return `<option value="${i.id}" data-price="${displayPrice}" data-original="${originalPrice}" data-purchase="${i.purchasePrice}" data-name="${i.name}" data-quantity="${i.quantity}" data-discount="${discount ? discount.discountPercent : 0}" data-currency="${currency}">
+                ${i.name} [${currency}] (Stock: ${i.quantity}) - ${priceDisplay}${discount ? ` [${discount.discountPercent}% OFF]` : ''}
             </option>`;
         }).join('');
 
@@ -222,7 +228,7 @@ async function renderBranchSale() {
                     <div style="margin-top:8px;color:#7f1d1d;">Original Price: <span id="originalPriceDisplay"></span><br>You save: <span id="savingsDisplay"></span></div>
                 </div>
                 <div class="form-group"><label>Quantity</label><input type="number" id="saleQty" min="1" value="1" onchange="calculateSaleTotal()"></div>
-                <div class="form-group"><label>Selling Price (AFG) - Fixed</label><input type="number" id="salePrice" step="0.01" readonly style="background:#f1f5f9;cursor:not-allowed;"></div>
+                <div class="form-group"><label id="salePriceLabel">Selling Price (AFG) - Fixed</label><input type="number" id="salePrice" step="0.01" readonly style="background:#f1f5f9;cursor:not-allowed;"></div>
                 <div class="form-group"><label>Total Amount</label><input type="text" id="saleTotal" value="AFG 0.00" readonly style="background:#f1f5f9;font-weight:700;color:#166534;"></div>
                 <button class="action-btn" onclick="recordSale()" id="saleBtn" style="width:100%;"><i class="fas fa-cash-register"></i> Record Sale</button>
                 <button class="action-btn" onclick="showMultiSaleForm()" style="width:100%;margin-top:10px;background:#3b82f6;">
@@ -242,9 +248,12 @@ window.updateSaleDetails = function () {
     let originalPrice = parseFloat(opt.dataset.original);
     let discountPercent = parseInt(opt.dataset.discount);
     let availableQty = parseInt(opt.dataset.quantity);
+    let currency = opt.dataset.currency || 'AFG';
 
     let priceInput = document.getElementById('salePrice');
     if (priceInput) priceInput.value = price;
+    let priceLabel = document.getElementById('salePriceLabel');
+    if (priceLabel) priceLabel.textContent = `Selling Price (${currency}) - Fixed`;
 
     let qtyInput = document.getElementById('saleQty');
     if (qtyInput) { qtyInput.max = availableQty; if (parseInt(qtyInput.value) > availableQty) qtyInput.value = availableQty; }
@@ -253,8 +262,8 @@ window.updateSaleDetails = function () {
     if (discountInfo) {
         if (discountPercent > 0) {
             discountInfo.style.display = 'block';
-            if (document.getElementById('originalPriceDisplay')) document.getElementById('originalPriceDisplay').innerHTML = formatMoney(originalPrice);
-            if (document.getElementById('savingsDisplay')) document.getElementById('savingsDisplay').innerHTML = `${formatMoney(originalPrice - price)} (${discountPercent}%)`;
+            if (document.getElementById('originalPriceDisplay')) document.getElementById('originalPriceDisplay').innerHTML = formatByCurrency(originalPrice, currency);
+            if (document.getElementById('savingsDisplay')) document.getElementById('savingsDisplay').innerHTML = `${formatByCurrency(originalPrice - price, currency)} (${discountPercent}%)`;
         } else { discountInfo.style.display = 'none'; }
     }
     calculateSaleTotal();
@@ -270,7 +279,8 @@ window.calculateSaleTotal = function () {
 
     let qty = parseInt(qtyInput.value) || 0;
     let price = parseFloat(priceInput.value) || 0;
-    totalInput.value = formatMoney(qty * price);
+    let currency = (select && select.selectedIndex >= 0) ? (select.options[select.selectedIndex].dataset.currency || 'AFG') : 'AFG';
+    totalInput.value = formatByCurrency(qty * price, currency);
 
     if (select && select.selectedIndex > 0) {
         let maxQty = parseInt(select.options[select.selectedIndex].dataset.quantity) || 0;
@@ -371,10 +381,13 @@ async function renderBranchBilling() {
                    
                     ${billNumbers.map(bill => {
                     let billDate = bills[bill][0]?.date || 'Unknown date';
-                    let totalPrice = bills[bill].reduce((sum, item) => sum + item.revenue, 0);
+                    let billItemsList = bills[bill];
+                    let totalAFG = billItemsList.filter(i => getItemCurrency(i.item) !== 'USD').reduce((sum, item) => sum + item.revenue, 0);
+                    let totalUSD = billItemsList.filter(i => getItemCurrency(i.item) === 'USD').reduce((sum, item) => sum + item.revenue, 0);
+                    let totalLabel = totalUSD > 0 ? `${formatMoney(totalAFG)} + ${formatByCurrency(totalUSD,'USD')}` : formatMoney(totalAFG);
                     let customerN = bills[bill][0]?.customerName || '';
                     let displayLabel = customerN ? `${bill} - ${customerN}` : bill;
-                    return `<option value="${bill}">${displayLabel} - ${formatMoney(totalPrice)} (${billDate})</option>`;
+                    return `<option value="${bill}">${displayLabel} - ${totalLabel} (${billDate})</option>`;
                 }).join('')}
                 </select>
             </div>
@@ -401,8 +414,13 @@ function loadBillDetails() {
         return;
     }
 
-    let totalItems = billItems.reduce((sum, item) => sum + item.qty, 0);
-    let totalPrice = billItems.reduce((sum, item) => sum + item.revenue, 0);
+    let itemsWithCurrency = billItems.map(item => ({ ...item, currency: getItemCurrency(item.item) }));
+    let afgItems = itemsWithCurrency.filter(i => i.currency !== 'USD');
+    let usdItems = itemsWithCurrency.filter(i => i.currency === 'USD');
+
+    let totalItems = itemsWithCurrency.reduce((sum, item) => sum + item.qty, 0);
+    let totalPriceAFG = afgItems.reduce((sum, item) => sum + item.revenue, 0);
+    let totalPriceUSD = usdItems.reduce((sum, item) => sum + item.revenue, 0);
     let customerName = billItems[0]?.customerName || '-';
     let billDate = billItems[0]?.date || '-';
 
@@ -414,25 +432,32 @@ function loadBillDetails() {
                 <div class="summary-item"><div class="label">Bill Number</div><div class="value">${billNumber}</div></div>
                 <div class="summary-item"><div class="label">Customer Name</div><div class="value" style="color:#166534;font-weight:600;">${customerName}</div></div>
                 <div class="summary-item"><div class="label">Total Items</div><div class="value">${totalItems}</div></div>
-                <div class="summary-item"><div class="label">Total Price</div><div class="value" style="color:#22c55e;">${formatMoney(totalPrice)}</div></div>
+                <div class="summary-item"><div class="label">Total Price (AFG)</div><div class="value" style="color:#22c55e;">${formatMoney(totalPriceAFG)}</div></div>
+                ${usdItems.length > 0 ? `<div class="summary-item"><div class="label">Total Price (USD)</div><div class="value" style="color:#2563eb;">${formatByCurrency(totalPriceUSD,'USD')}</div></div>` : ''}
                 <div class="summary-item"><div class="label">Date</div><div class="value">${billDate}</div></div>
             </div>
         </div>
         <div class="table-wrapper"><table>
-            <thead><tr><th>Item Name</th><th>Quantity</th><th>Selling Price</th><th>Total Price</th></tr></thead>
-            <tbody>${billItems.map(item => `
+            <thead><tr><th>Item Name</th><th>Currency</th><th>Quantity</th><th>Selling Price</th><th>Total Price</th></tr></thead>
+            <tbody>${itemsWithCurrency.map(item => `
                 <tr>
                     <td>${escapeHtml(item.item)}</td>
+                    <td><span class="badge ${item.currency==='USD'?'badge-mainclient':'badge-active'}">${item.currency}</span></td>
                     <td>${item.qty}</td>
-                    <td>${formatMoney(item.price)}</td>
-                    <td class="total-value">${formatMoney(item.revenue)}</td>
+                    <td>${formatByCurrency(item.price, item.currency)}</td>
+                    <td class="total-value">${formatByCurrency(item.revenue, item.currency)}</td>
                 </tr>`).join('')}
             </tbody>
-            <tfoot><tr class="grand-total">
-                <td colspan="2"><strong>Grand Total</strong></td>
-                <td><strong>${formatMoney(totalPrice)}</strong></td>
-                <td></td>
-            </tr></tfoot>
+            <tfoot>
+                <tr class="grand-total">
+                    <td colspan="3"><strong>Grand Total (AFG)</strong></td>
+                    <td colspan="2"><strong>${formatMoney(totalPriceAFG)}</strong></td>
+                </tr>
+                ${usdItems.length > 0 ? `<tr class="grand-total" style="background:#eff6ff;">
+                    <td colspan="3"><strong>Grand Total (USD)</strong></td>
+                    <td colspan="2"><strong>${formatByCurrency(totalPriceUSD,'USD')}</strong></td>
+                </tr>` : ''}
+            </tfoot>
         </table></div>
         <div style="text-align:center;margin-top:20px;">
             <button class="action-btn" onclick="printBill('${billNumber}')">
@@ -441,24 +466,26 @@ function loadBillDetails() {
         </div>`;
 }
 
-
 function printBill(billNumber) {
     let branch = currentUser.username;
     let bills = branchBills[branch] || {};
     let billItems = bills[billNumber] || [];
     
-    // نام مشتری از bill items بگیر - نپرس
     let customerName = billItems[0]?.customerName || '';
     if (!customerName) {
         customerName = prompt('Enter Customer Name:') || 'Unknown';
     }
     
-    // فقط phone بپرس
     let customerPhone = prompt('Enter Customer Phone Number:');
     if (!customerPhone) { alert('Customer phone number is required!'); return; }
 
-    let totalItems = billItems.reduce((sum, item) => sum + item.qty, 0);
-    let totalPrice = billItems.reduce((sum, item) => sum + item.revenue, 0);
+    let itemsWithCurrency = billItems.map(item => ({ ...item, currency: getItemCurrency(item.item) }));
+    let afgItems = itemsWithCurrency.filter(i => i.currency !== 'USD');
+    let usdItems = itemsWithCurrency.filter(i => i.currency === 'USD');
+
+    let totalItems = itemsWithCurrency.reduce((sum, item) => sum + item.qty, 0);
+    let totalPriceAFG = afgItems.reduce((sum, item) => sum + item.revenue, 0);
+    let totalPriceUSD = usdItems.reduce((sum, item) => sum + item.revenue, 0);
     let billDate = billItems[0]?.date || getTodayDate();
 
     let printWindow = window.open('', '_blank');
@@ -473,7 +500,10 @@ function printBill(billNumber) {
         .invoice-table{width:100%;border-collapse:collapse;}.invoice-table th{background:#f1f5f9;padding:15px;text-align:left;font-weight:600;color:#475569;border-bottom:2px solid #e2e8f0;}
         .invoice-table td{padding:12px 15px;border-bottom:1px solid #e2e8f0;color:#334155;}.invoice-table .total-value{font-weight:600;color:#166534;}
         .invoice-table tfoot tr{background:#f8fafc;}.invoice-table tfoot td{padding:15px;font-weight:600;border-top:2px solid #e2e8f0;}
-        .invoice-total{background:linear-gradient(145deg,#f0fdf4,#dcfce7);margin:20px 30px 30px 30px;padding:20px;border-radius:16px;text-align:right;font-size:24px;font-weight:700;color:#166534;border:2px solid #bbf7d0;}
+        .currency-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;}
+        .currency-afg{background:#dcfce7;color:#166534;}.currency-usd{background:#dbeafe;color:#1e40af;}
+        .invoice-total{background:linear-gradient(145deg,#f0fdf4,#dcfce7);margin:20px 30px 10px 30px;padding:20px;border-radius:16px;text-align:right;font-size:22px;font-weight:700;color:#166534;border:2px solid #bbf7d0;}
+        .invoice-total-usd{background:linear-gradient(145deg,#eff6ff,#dbeafe);margin:0 30px 30px 30px;padding:20px;border-radius:16px;text-align:right;font-size:22px;font-weight:700;color:#1e40af;border:2px solid #bfdbfe;}
         .invoice-footer{text-align:center;padding:25px 30px;background:#f8fafc;border-top:2px solid #e2e8f0;color:#64748b;font-size:13px;}
         @media print{body{background:white;padding:0;}.invoice-print{box-shadow:none;border-radius:0;}.no-print{display:none!important;}}
     </style></head><body>
@@ -490,21 +520,33 @@ function printBill(billNumber) {
                 <div class="invoice-info-item"><div class="label">Date</div><div class="value">${billDate}</div></div>
             </div>
             <table class="invoice-table">
-                <thead><tr><th>Item Name</th><th>Quantity</th><th>Price per Unit</th><th>Total Price</th></tr></thead>
-                <tbody>${billItems.map(item => `
+                <thead><tr><th>Item Name</th><th>Currency</th><th>Quantity</th><th>Price per Unit</th><th>Total Price</th></tr></thead>
+                <tbody>${itemsWithCurrency.map(item => `
                     <tr>
                         <td>${escapeHtml(item.item)}</td>
+                        <td><span class="currency-badge ${item.currency==='USD'?'currency-usd':'currency-afg'}">${item.currency}</span></td>
                         <td>${item.qty}</td>
-                        <td>${formatMoney(item.price)}</td>
-                        <td class="total-value">${formatMoney(item.revenue)}</td>
+                        <td>${formatByCurrency(item.price, item.currency)}</td>
+                        <td class="total-value">${formatByCurrency(item.revenue, item.currency)}</td>
                     </tr>`).join('')}
                 </tbody>
-                <tfoot><tr>
-                    <td colspan="3"><strong>Total Items: ${totalItems}</strong></td>
-                    <td><strong>${formatMoney(totalPrice)}</strong></td>
-                </tr></tfoot>
+                <tfoot>
+                    <tr>
+                        <td colspan="4"><strong>Total Items: ${totalItems}</strong></td>
+                        <td></td>
+                    </tr>
+                    <tr>
+                        <td colspan="4"><strong>Grand Total (AFG)</strong></td>
+                        <td><strong>${formatMoney(totalPriceAFG)}</strong></td>
+                    </tr>
+                    ${usdItems.length > 0 ? `<tr>
+                        <td colspan="4"><strong>Grand Total (USD)</strong></td>
+                        <td><strong>${formatByCurrency(totalPriceUSD,'USD')}</strong></td>
+                    </tr>` : ''}
+                </tfoot>
             </table>
-            <div class="invoice-total">Grand Total: ${formatMoney(totalPrice)}</div>
+            <div class="invoice-total">Grand Total (AFG): ${formatMoney(totalPriceAFG)}</div>
+            ${usdItems.length > 0 ? `<div class="invoice-total-usd">Grand Total (USD): ${formatByCurrency(totalPriceUSD,'USD')}</div>` : ''}
             <div class="invoice-footer">
                 <p>Generated by ${branch} Branch</p>
                 <p>Thank you for your purchase!</p>
@@ -517,7 +559,6 @@ function printBill(billNumber) {
     </body></html>`);
     printWindow.document.close();
 }
-
 
 // ==================== BRANCH EXPENSES ====================
 async function renderBranchExpenses() {
@@ -660,17 +701,20 @@ window.showMultiSaleForm = async function() {
     });
     let groupedArray = Object.values(groupedItems);
 
-    let itemCheckboxes = groupedArray.map(item => `
+    let itemCheckboxes = groupedArray.map(item => {
+        let currency = getItemCurrency(item.name);
+        return `
         <div style="display:flex;align-items:center;gap:10px;padding:10px;background:white;border-radius:12px;margin-bottom:8px;border:2px solid #bbf7d0;">
             <input type="checkbox" id="mschk_${item.name.replace(/\s/g,'_')}" value="${item.name}"
-                data-price="${item.sellingPrice}" data-max="${item.quantity}"
+                data-price="${item.sellingPrice}" data-max="${item.quantity}" data-currency="${currency}"
                 onchange="updateMultiSaleTable()"
                 style="width:20px;height:20px;cursor:pointer;">
             <label for="mschk_${item.name.replace(/\s/g,'_')}" style="flex:1;cursor:pointer;color:#166534;font-weight:500;">
-                ${item.name}
-                <span style="color:#64748b;font-size:13px;">(Stock: ${item.quantity} | ${formatMoney(item.sellingPrice)})</span>
+                ${item.name} <span class="badge ${currency==='USD'?'badge-mainclient':'badge-active'}">${currency}</span>
+                <span style="color:#64748b;font-size:13px;">(Stock: ${item.quantity} | ${formatByCurrency(item.sellingPrice,currency)})</span>
             </label>
-        </div>`).join('');
+        </div>`;
+    }).join('');
 
     document.getElementById('modalContent').innerHTML = `
         <div class="modal-header"><h3><i class="fas fa-layer-group"></i> Multi Sale</h3><button onclick="closeModal()">&times;</button></div>
@@ -716,15 +760,16 @@ window.updateMultiSaleTable = function() {
     let rows = '';
     checkboxes.forEach(chk => {
         let name = chk.value, price = parseFloat(chk.dataset.price), max = parseInt(chk.dataset.max);
+        let currency = chk.dataset.currency || 'AFG';
         let inputId = `msqty_${name.replace(/\s/g,'_')}`;
         rows += `<tr>
-            <td><strong>${name}</strong></td>
+            <td><strong>${name}</strong> <span class="badge ${currency==='USD'?'badge-mainclient':'badge-active'}">${currency}</span></td>
             <td>${max}</td>
             <td><input type="number" id="${inputId}" min="1" max="${max}" value="1"
                 style="width:70px;padding:6px;border:2px solid #bbf7d0;border-radius:8px;text-align:center;"
-                onchange="updateMultiSaleTotal('${name.replace(/'/g,"\\'")}', ${price}, ${max}, this)"></td>
-            <td>${formatMoney(price)}</td>
-            <td id="mstotal_${name.replace(/\s/g,'_')}" class="total-value">${formatMoney(price)}</td>
+                onchange="updateMultiSaleTotal('${name.replace(/'/g,"\\'")}', ${price}, ${max}, this, '${currency}')"></td>
+            <td>${formatByCurrency(price, currency)}</td>
+            <td id="mstotal_${name.replace(/\s/g,'_')}" class="total-value">${formatByCurrency(price, currency)}</td>
         </tr>`;
     });
     tbody.innerHTML = rows;
@@ -732,24 +777,26 @@ window.updateMultiSaleTable = function() {
     updateMultiSaleGrandTotal();
 };
 
-window.updateMultiSaleTotal = function(name, price, max, input) {
+window.updateMultiSaleTotal = function(name, price, max, input, currency = 'AFG') {
     let qty = Math.min(Math.max(parseInt(input.value) || 1, 1), max);
     input.value = qty;
     let cell = document.getElementById(`mstotal_${name.replace(/\s/g,'_')}`);
-    if (cell) cell.textContent = formatMoney(price * qty);
+    if (cell) cell.textContent = formatByCurrency(price * qty, currency);
     updateMultiSaleGrandTotal();
 };
 
 function updateMultiSaleGrandTotal() {
     let checkboxes = document.querySelectorAll('#modalContent input[type="checkbox"]:checked');
-    let grand = 0;
+    let grandAFG = 0, grandUSD = 0;
     checkboxes.forEach(chk => {
         let name = chk.value, price = parseFloat(chk.dataset.price);
+        let currency = chk.dataset.currency || 'AFG';
         let qty = parseInt(document.getElementById(`msqty_${name.replace(/\s/g,'_')}`)?.value) || 1;
-        grand += price * qty;
+        if (currency === 'USD') grandUSD += price * qty;
+        else grandAFG += price * qty;
     });
     let el = document.getElementById('multiSaleGrandTotal');
-    if (el) el.textContent = formatMoney(grand);
+    if (el) el.textContent = grandUSD > 0 ? `${formatMoney(grandAFG)} + ${formatByCurrency(grandUSD,'USD')}` : formatMoney(grandAFG);
 }
 
 window.processMultiSale = async function() {
