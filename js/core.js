@@ -230,7 +230,7 @@ async function refreshDataFromServer() {
             }
         } catch (err) { console.log('Error loading shipments:', err); }
 
-        const convertedShipments = freshShipments.map(s => ({
+            const convertedShipments = freshShipments.map(s => ({
             id: s.id,
             date: s.date ? formatDateForCompare(s.date) : getTodayDate(),
             branch: s.branch,
@@ -238,7 +238,8 @@ async function refreshDataFromServer() {
             qty: parseInt(s.qty),
             sellingPrice: parseFloat(s.selling_price) || parseFloat(s.sellingPrice) || 0,
             purchasePrice: parseFloat(s.purchase_price) || parseFloat(s.purchasePrice) || 0,
-            uniqueKey: s.unique_key
+            uniqueKey: s.unique_key,
+            billNumber: s.bill_number || ''
         }));
 
         mainClientToBranchShipments = convertedShipments;

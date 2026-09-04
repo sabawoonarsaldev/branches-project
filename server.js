@@ -28,7 +28,7 @@ const SALT_ROUNDS = 10;
 
 // // // MySQL connection pool (Aiven / production ready)
 
-const ca_path = process.env.CA || '/etc/secrets/ca.pem';
+// const ca_path = process.env.CA || '/etc/secrets/ca.pem';
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -101,6 +101,24 @@ pool.getConnection()
             console.log('payments_to_admin.currency column ready');
         } catch (err) {
             if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding currency to payments_to_admin:', err.message);
+        }
+            try {
+            await pool.query(`ALTER TABLE shipments_to_branches ADD COLUMN bill_number VARCHAR(100) DEFAULT NULL`);
+            console.log('shipments_to_branches.bill_number column ready');
+        } catch (err) {
+            if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding bill_number to shipments_to_branches:', err.message);
+        }
+        try {
+            await pool.query(`ALTER TABLE invoices MODIFY COLUMN date VARCHAR(100)`);
+            console.log('invoices.date column type updated to VARCHAR');
+        } catch (err) {
+            console.error('Error updating invoices.date column:', err.message);
+        }
+        try {
+            await pool.query(`ALTER TABLE invoice_items MODIFY COLUMN date VARCHAR(100)`);
+            console.log('invoice_items.date column type updated to VARCHAR');
+        } catch (err) {
+            console.error('Error updating invoice_items.date column:', err.message);
         }
         } catch (err) {
             console.error('Error creating table:', err);
@@ -481,7 +499,7 @@ app.get('/api/shipments', async (req, res) => {
     try {
         const [rows] = await pool.execute('SELECT * FROM shipments_to_branches ORDER BY date DESC');
 
-        const shipments = rows.map(s => ({
+            const shipments = rows.map(s => ({
             id: s.id,
             date: s.date ? (typeof s.date === 'string' ? s.date.split('T')[0] : s.date.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2}).*/, '$1-$2-$3')) : null,
             branch: s.branch,
@@ -489,7 +507,8 @@ app.get('/api/shipments', async (req, res) => {
             qty: s.qty,
             selling_price: s.selling_price,
             purchase_price: s.purchase_price,
-            unique_key: s.unique_key
+            unique_key: s.unique_key,
+            bill_number: s.bill_number
         }));
         console.log('Shipments with cleaned dates:', shipments.map(s => ({ id: s.id, date: s.date })));
         res.json(shipments);
@@ -500,7 +519,7 @@ app.get('/api/shipments', async (req, res) => {
 });
 
 app.post('/api/shipments', async (req, res) => {
-    const { date, branch, item, qty, selling_price, purchase_price, unique_key } = req.body;
+    const { date, branch, item, qty, selling_price, purchase_price, unique_key, bill_number } = req.body;
     let cleanDate = date;
     if (date && date.includes('T')) {
         cleanDate = date.split('T')[0];
@@ -513,9 +532,9 @@ app.post('/api/shipments', async (req, res) => {
 
     try {
         const [result] = await pool.execute(
-            `INSERT INTO shipments_to_branches (date, branch, item, qty, selling_price, purchase_price, unique_key) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [cleanDate, branch, item, qty, selling_price, purchase_price, unique_key]
+            `INSERT INTO shipments_to_branches (date, branch, item, qty, selling_price, purchase_price, unique_key, bill_number) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [cleanDate, branch, item, qty, selling_price, purchase_price, unique_key, bill_number || null]
         );
 
         const [rows] = await pool.execute('SELECT * FROM shipments_to_branches WHERE id = ?', [result.insertId]);
@@ -526,7 +545,6 @@ app.post('/api/shipments', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
 // ============= EXPENSES API =============
 
 app.post('/api/expenses', async (req, res) => {

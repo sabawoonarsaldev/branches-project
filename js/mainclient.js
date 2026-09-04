@@ -460,6 +460,9 @@ async function renderMainClientDistribute() {
                         <option value="">-- Choose a branch --</option>${branchOptions}
                     </select>
                 </div>
+                <div class="form-group"><label><i class="fas fa-receipt"></i> Bill Number</label>
+                    <input type="text" id="distBillNumber" class="form-control" placeholder="Enter bill number (name or number)">
+                </div>
                 <div class="form-group"><label><i class="fas fa-box"></i> Select Item</label>
                     <select id="distItem" class="form-control" onchange="updateDistItemDetails()">
                         <option value="">-- Choose an item --</option>${itemOptions}
@@ -561,10 +564,10 @@ window.distributeToBranch = async function () {
     if (btn) { btn.disabled = true; btn.textContent = 'Please wait...'; }
 
     let branch = document.getElementById('distBranch').value;
+    let billNumber = document.getElementById('distBillNumber')?.value.trim() || '';
     let itemName = document.getElementById('distItem').value;
     let qty = parseInt(document.getElementById('distQty').value);
     let sellingPrice = parseFloat(document.getElementById('distSellingPrice').value);
-
     if (!branch || !itemName || !qty) { alert('Please fill all fields'); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-share-alt"></i> Distribute to Branch'; } return; }
 
     let sharedItem = mainClientItems.find(i => i.name === itemName);
@@ -582,12 +585,12 @@ window.distributeToBranch = async function () {
         await fetch('/api/main-client-distributed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ main_client: currentUser.username, item_name: itemName, distributed_quantity: qty }) });
         mainClientDistributed[distributedKey] = (mainClientDistributed[distributedKey] || 0) + qty;
         await addBranchInventory({ branch, item_name: itemName, quantity: qty, selling_price: sellingPrice, purchase_price: sharedItem.purchasePrice, shipment_date: getTodayDate(), distribution_id: uniqueDistributionId, supplier: sharedItem.supplier, original_quantity: qty });
-        await addShipment({ date: getTodayDate(), branch, item: itemName, qty, selling_price: sellingPrice, purchase_price: sharedItem.purchasePrice, unique_key: uniqueDistributionId });
+        await addShipment({ date: getTodayDate(), branch, item: itemName, qty, selling_price: sellingPrice, purchase_price: sharedItem.purchasePrice, unique_key: uniqueDistributionId, bill_number: billNumber });
         await fetch('/api/shipment-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shipment_id: uniqueDistributionId, paid_amount: 0 }) });
 
         if (!branchInventory[branch]) branchInventory[branch] = [];
         branchInventory[branch].push({ id: branchInventory[branch].length + 1, name: itemName, quantity: qty, purchasePrice: sharedItem.purchasePrice, sellingPrice, supplier: sharedItem.supplier, shipmentDate: getTodayDate(), distributionId: uniqueDistributionId, originalQuantity: qty });
-        mainClientToBranchShipments.push({ id: mainClientToBranchShipments.length + 1, date: getTodayDate(), branch, item: itemName, qty, purchasePrice: sharedItem.purchasePrice, sellingPrice, uniqueKey: uniqueDistributionId });
+        mainClientToBranchShipments.push({ id: mainClientToBranchShipments.length + 1, date: getTodayDate(), branch, item: itemName, qty, purchasePrice: sharedItem.purchasePrice, sellingPrice, uniqueKey: uniqueDistributionId, billNumber });
         saveData(); recalcMainFinance();
         await refreshDataFromServer();
         await renderMainClientDistribute();
@@ -617,6 +620,9 @@ window.showMultipleDistributeForm = async function () {
         <div class="modal-header"><h3><i class="fas fa-layer-group"></i> Multiple Distribute</h3><button onclick="closeModal()">&times;</button></div>
         <div class="form-group"><label><i class="fas fa-code-branch"></i> Select Branch</label>
             <select id="multiDistBranch" class="form-control"><option value="">-- Choose a branch --</option>${branchOptions}</select>
+        <div class="form-group"><label><i class="fas fa-receipt"></i> Bill Number</label>
+            <input type="text" id="multiDistBillNumber" class="form-control" placeholder="Enter bill number (applies to all selected items)">
+        </div>
         </div>
         <div class="form-group"><label><i class="fas fa-box"></i> Select Items</label>
             <div style="max-height:250px;overflow-y:auto;padding:10px;background:#f0fdf4;border-radius:12px;border:2px solid #bbf7d0;">${itemCheckboxes.length > 0 ? itemCheckboxes : '<p style="color:#64748b;text-align:center;">No items available</p>'}</div>
@@ -664,6 +670,7 @@ window.updateMultipleDistributeTotal = function (itemName, price, max, input, cu
 
 window.processMultipleDistribute = async function () {
     let branch = document.getElementById('multiDistBranch').value;
+    let billNumber = document.getElementById('multiDistBillNumber')?.value.trim() || '';
     if (!branch) { alert('Please select a branch'); return; }
     let checkboxes = document.querySelectorAll('#modalContent input[type="checkbox"]:checked');
     if (checkboxes.length === 0) { alert('Please select at least one item'); return; }
@@ -683,7 +690,7 @@ window.processMultipleDistribute = async function () {
         try {
             await fetch('/api/main-client-distributed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ main_client: currentUser.username, item_name: itemName, distributed_quantity: qty }) });
             await addBranchInventory({ branch, item_name: itemName, quantity: qty, selling_price: price, purchase_price: sharedItem.purchasePrice, shipment_date: getTodayDate(), distribution_id: uniqueId, supplier: sharedItem.supplier, original_quantity: qty });
-            await addShipment({ date: getTodayDate(), branch, item: itemName, qty, selling_price: price, purchase_price: sharedItem.purchasePrice, unique_key: uniqueId });
+            await addShipment({ date: getTodayDate(), branch, item: itemName, qty, selling_price: price, purchase_price: sharedItem.purchasePrice, unique_key: uniqueId, bill_number: billNumber });
             await fetch('/api/shipment-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shipment_id: uniqueId, paid_amount: 0 }) });
             mainClientDistributed[itemName] = (mainClientDistributed[itemName] || 0) + qty;
             successCount++;

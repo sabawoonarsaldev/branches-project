@@ -403,7 +403,13 @@ async function renderMainClientBilling() {
         <div class="report-billing-section">
             <div class="filter-row">
                 <div class="filter-group"><label><i class="fas fa-code-branch"></i> Select Branch</label>
-                    <select id="billingBranchSelect"><option value="">-- Choose a branch --</option>${branches.map(b => `<option value="${b.username}">${b.username} Branch</option>`).join('')}</select>
+                    <select id="billingBranchSelect" onchange="updateBillingBillNumberOptions()"><option value="">-- Choose a branch --</option>${branches.map(b => `<option value="${b.username}">${b.username} Branch</option>`).join('')}</select>
+                </div>
+                <div class="filter-group" id="billingBillNumberGroup" style="display:none;">
+                    <label><i class="fas fa-receipt"></i> Bill Number</label>
+                    <select id="billingBillNumberSelect" onchange="toggleBillingTimePeriodDisabled()">
+                        <option value="">-- Use Time Period --</option>
+                    </select>
                 </div>
                 <div class="filter-group">
     <label><i class="fas fa-calendar-alt"></i> Time Period</label>
@@ -433,44 +439,90 @@ async function renderMainClientBilling() {
         <div id="billingDataContainer" style="display:none;"></div>`;
 }
 
+window.updateBillingBillNumberOptions = function() {
+    let branch = document.getElementById('billingBranchSelect')?.value;
+    let group = document.getElementById('billingBillNumberGroup');
+    let select = document.getElementById('billingBillNumberSelect');
+    if (!branch) { if (group) group.style.display = 'none'; return; }
+
+    let billNumbers = [...new Set(
+        mainClientToBranchShipments
+            .filter(s => s.branch === branch && s.billNumber && s.billNumber.trim() !== '')
+            .map(s => s.billNumber)
+    )];
+
+    if (select) {
+        select.innerHTML = `<option value="">-- Use Time Period --</option>` + billNumbers.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+    }
+    if (group) group.style.display = billNumbers.length > 0 ? 'flex' : 'none';
+    toggleBillingTimePeriodDisabled();
+};
+
+window.toggleBillingTimePeriodDisabled = function() {
+    let billNumber = document.getElementById('billingBillNumberSelect')?.value;
+    let periodSelect = document.getElementById('billingTimePeriod');
+    let dateGroup = document.getElementById('billingDateGroup');
+    let customRange = document.getElementById('billingCustomRange');
+    let isBillSelected = !!billNumber;
+    if (periodSelect) periodSelect.disabled = isBillSelected;
+    if (dateGroup) dateGroup.style.opacity = isBillSelected ? '0.5' : '1';
+    if (customRange) customRange.style.opacity = isBillSelected ? '0.5' : '1';
+};
+
+
 window.loadBillingData = async function () {
     let branch = document.getElementById('billingBranchSelect').value;
     if (!branch) { alert('Please select a branch'); return; }
-    
-    let period = document.getElementById('billingTimePeriod')?.value || 'date';
-    let today = getTodayDate();
-    let now = new Date();
-    let startDate, endDate;
 
-    if (period === 'date') {
-        let dateInput = document.getElementById('billingDate')?.value || today;
-        startDate = dateInput;
-        endDate = dateInput;
-    } else if (period === 'daily') {
-        startDate = today;
-        endDate = today;
-    } else if (period === 'weekly') {
-        let start = new Date(now);
-        start.setDate(now.getDate() - 7);
-        startDate = start.toISOString().split('T')[0];
-        endDate = today;
-    } else if (period === 'monthly') {
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-        endDate = today;
-    } else if (period === 'custom') {
-        startDate = document.getElementById('billingStartDate')?.value;
-        endDate = document.getElementById('billingEndDate')?.value;
-        if (!startDate || !endDate) { alert('Please select date range'); return; }
-    }
-
+    let billNumber = document.getElementById('billingBillNumberSelect')?.value || '';
     await refreshDataFromServer();
 
-    let filteredShipments = mainClientToBranchShipments.filter(s => {
-        let shipmentDate = formatDateForCompare(s.date);
-        if (s.branch !== branch) return false;
-        if (startDate === endDate) return shipmentDate === startDate;
-        return shipmentDate >= startDate && shipmentDate <= endDate;
-    }).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+    let filteredShipments, periodLabel, startDate, endDate;
+
+    if (billNumber) {
+        filteredShipments = mainClientToBranchShipments.filter(s => s.branch === branch && s.billNumber === billNumber)
+            .map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+        periodLabel = `Bill Number: ${billNumber}`;
+        window._billingFilterContext = { type: 'billNumber', branch, billNumber };
+    } else {
+        let period = document.getElementById('billingTimePeriod')?.value || 'date';
+        let today = getTodayDate();
+        let now = new Date();
+
+        if (period === 'date') {
+            let dateInput = document.getElementById('billingDate')?.value || today;
+            startDate = dateInput;
+            endDate = dateInput;
+        } else if (period === 'daily') {
+            startDate = today;
+            endDate = today;
+        } else if (period === 'weekly') {
+            let start = new Date(now);
+            start.setDate(now.getDate() - 7);
+            startDate = start.toISOString().split('T')[0];
+            endDate = today;
+        } else if (period === 'monthly') {
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+            endDate = today;
+        } else if (period === 'custom') {
+            startDate = document.getElementById('billingStartDate')?.value;
+            endDate = document.getElementById('billingEndDate')?.value;
+            if (!startDate || !endDate) { alert('Please select date range'); return; }
+        }
+
+        filteredShipments = mainClientToBranchShipments.filter(s => {
+            let shipmentDate = formatDateForCompare(s.date);
+            if (s.branch !== branch) return false;
+            if (startDate === endDate) return shipmentDate === startDate;
+            return shipmentDate >= startDate && shipmentDate <= endDate;
+        }).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+
+        periodLabel = period === 'date' ? startDate :
+                      period === 'daily' ? `Today (${today})` :
+                      `${startDate} to ${endDate}`;
+
+        window._billingFilterContext = { type: 'date', branch, startDate, endDate };
+    }
 
     let afgShipments = filteredShipments.filter(s => s.currency !== 'USD');
     let usdShipments = filteredShipments.filter(s => s.currency === 'USD');
@@ -479,19 +531,13 @@ window.loadBillingData = async function () {
     let afgTotalValue = afgShipments.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
     let usdTotalValue = usdShipments.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
 
-    let periodLabel = period === 'date' ? startDate :
-                      period === 'daily' ? `Today (${today})` :
-                      period === 'weekly' ? `${startDate} to ${endDate}` :
-                      period === 'monthly' ? `${startDate} to ${endDate}` :
-                      `${startDate} to ${endDate}`;
-
     let html = `
         <div class="branch-inventory-header">
             <h3><i class="fas fa-truck"></i> Shipments Report</h3>
-            <h4 style="color:#166534;margin-top:10px;">Branch: ${branch} | Period: ${periodLabel}</h4>
+            <h4 style="color:#166534;margin-top:10px;">Branch: ${branch} | ${periodLabel}</h4>
         </div>
         ${filteredShipments.length === 0
-            ? `<div class="empty-state"><i class="fas fa-box-open"></i><h3>No Shipments Found</h3><p>No items were sent to ${branch} in this period.</p></div>`
+            ? `<div class="empty-state"><i class="fas fa-box-open"></i><h3>No Shipments Found</h3><p>No items match this filter.</p></div>`
             : `<div class="table-wrapper"><table class="report-table">
                 <thead><tr><th>Item Name</th><th>Currency</th><th>Date</th><th>Quantity</th><th>Selling Price/Unit</th><th>Total Price</th></tr></thead>
                 <tbody>${filteredShipments.sort((a,b) => new Date(b.date)-new Date(a.date)).map(s => {
@@ -501,7 +547,7 @@ window.loadBillingData = async function () {
                     let priceDisplay = (discount && !isFullyPaid)
                         ? `<span style="text-decoration:line-through;color:#94a3b8;font-size:12px;">${fmt(discount.originalPrice)}</span><br><span style="color:#22c55e;font-weight:600;">${fmt(discount.newPrice)}</span>`
                         : fmt(s.sellingPrice);
-                    return `<tr><td>${escapeHtml(s.item)}</td><td><span class="badge ${s.currency === 'USD' ? 'badge-mainclient' : 'badge-active'}">${s.currency}</span></td><td>${s.date}</td><td>${s.qty}</td><td>${priceDisplay}</td><td class="total-value">${fmt(getShipmentCorrectTotal(s))}</td></tr>`;
+                    return `<tr><td>${escapeHtml(s.item)}</td><td><span class="badge ${s.currency==='USD'?'badge-mainclient':'badge-active'}">${s.currency}</span></td><td>${s.date}</td><td>${s.qty}</td><td>${priceDisplay}</td><td class="total-value">${fmt(getShipmentCorrectTotal(s))}</td></tr>`;
                 }).join('')}</tbody>
                </table></div>`
         }
@@ -514,7 +560,7 @@ window.loadBillingData = async function () {
         </div>
         ${filteredShipments.length > 0 ? `
             <div style="text-align:right;margin-top:20px;">
-                <button class="action-btn" onclick="showInvoiceNumberModal('${branch}','${startDate}','${endDate}')">
+                <button class="action-btn" onclick="showInvoiceNumberModal()">
                     <i class="fas fa-file-invoice"></i> Generate Bill
                 </button>
             </div>` : ''}`;
@@ -540,32 +586,48 @@ window.toggleBillingDateInput = function() {
     }
 };
 
-window.showInvoiceNumberModal = function (branch, startDate, endDate) {
+window.showInvoiceNumberModal = function () {
+    let ctx = window._billingFilterContext || {};
+    let periodDisplay = ctx.type === 'billNumber'
+        ? `Bill Number: ${ctx.billNumber}`
+        : (ctx.startDate === ctx.endDate ? ctx.startDate : `${ctx.startDate} to ${ctx.endDate}`);
+
     document.getElementById('modalContent').innerHTML = `
         <div class="modal-header"><h3>Enter Invoice Number</h3><button onclick="closeModal()">&times;</button></div>
         <div class="form-group"><label>Invoice Number</label>
             <input type="text" id="invoiceNumberInput" value="INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}">
         </div>
-        <div class="form-group"><label>Branch</label><input type="text" value="${branch} Branch" readonly></div>
-        <div class="form-group"><label>Period</label><input type="text" value="${startDate === endDate ? startDate : startDate + ' to ' + endDate}" readonly></div>
-        <button class="save-btn" onclick="generateInvoice('${branch}','${startDate}','${endDate}')">
+        <div class="form-group"><label>Branch</label><input type="text" value="${ctx.branch} Branch" readonly></div>
+        <div class="form-group"><label>Period</label><input type="text" value="${periodDisplay}" readonly></div>
+        <button class="save-btn" onclick="generateInvoice()">
             <i class="fas fa-print"></i> Generate & Print Invoice
         </button>`;
     document.getElementById('modal').classList.add('active');
 };
 
-window.generateInvoice = async function (branch, startDate, endDate) {
+window.generateInvoice = async function () {
     let invoiceNumber = document.getElementById('invoiceNumberInput').value;
     if (!invoiceNumber.trim()) { alert('Please enter an invoice number'); return; }
-    
+
+    let ctx = window._billingFilterContext || {};
+    let branch = ctx.branch;
     let mainClient = currentUser.username;
-    
-    let dailyShipments = mainClientToBranchShipments.filter(s => {
-        let d = formatDateForCompare(s.date);
-        if (s.branch !== branch) return false;
-        if (startDate === endDate) return d === startDate;
-        return d >= startDate && d <= endDate;
-    }).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+
+    let dailyShipments, dateLabel;
+    if (ctx.type === 'billNumber') {
+        dailyShipments = mainClientToBranchShipments.filter(s => s.branch === branch && s.billNumber === ctx.billNumber)
+            .map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+        dateLabel = `Bill Number: ${ctx.billNumber}`;
+    } else {
+        let startDate = ctx.startDate, endDate = ctx.endDate;
+        dailyShipments = mainClientToBranchShipments.filter(s => {
+            let d = formatDateForCompare(s.date);
+            if (s.branch !== branch) return false;
+            if (startDate === endDate) return d === startDate;
+            return d >= startDate && d <= endDate;
+        }).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+        dateLabel = startDate === endDate ? startDate : `${startDate} to ${endDate}`;
+    }
 
     let afgShip = dailyShipments.filter(s => s.currency !== 'USD');
     let usdShip = dailyShipments.filter(s => s.currency === 'USD');
@@ -591,7 +653,7 @@ window.generateInvoice = async function (branch, startDate, endDate) {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 number: invoiceNumber, main_client: mainClient, branch,
-                date: startDate === endDate ? startDate : `${startDate} to ${endDate}`,
+                date: dateLabel,
                 total_items: totalItems, total_value: totalValueAFG,
                 all_time_total_items: allTimeTotalItems, all_time_total_value: allTimeTotalValueAFG,
                 all_time_paid: allTimePaidAFG, all_time_unpaid: allTimeUnpaidAFG,
@@ -599,11 +661,12 @@ window.generateInvoice = async function (branch, startDate, endDate) {
             })
         });
         if (!response.ok) throw new Error('Failed to save invoice');
-        invoices.push({ number: invoiceNumber, mainClient, branch, date: startDate, shipments: dailyShipments, totalItems, totalValue: totalValueAFG, createdAt: new Date().toISOString() });
-        showInvoicePrint(invoiceNumber, mainClient, branch, startDate === endDate ? startDate : `${startDate} to ${endDate}`, dailyShipments, totalItems, totalValueAFG, totalValueUSD, allTimeTotalItems, allTimeTotalValueAFG, allTimeTotalValueUSD, allTimePaidAFG, allTimePaidUSD, allTimeUnpaidAFG, allTimeUnpaidUSD);
+        invoices.push({ number: invoiceNumber, mainClient, branch, date: dateLabel, shipments: dailyShipments, totalItems, totalValue: totalValueAFG, createdAt: new Date().toISOString() });
+        showInvoicePrint(invoiceNumber, mainClient, branch, dateLabel, dailyShipments, totalItems, totalValueAFG, totalValueUSD, allTimeTotalItems, allTimeTotalValueAFG, allTimeTotalValueUSD, allTimePaidAFG, allTimePaidUSD, allTimeUnpaidAFG, allTimeUnpaidUSD);
         closeModal();
     } catch (error) { alert('Failed to save invoice: ' + error.message); }
 };
+
 
 function showInvoicePrint(invoiceNumber, mainClient, branch, date, shipments, totalItems, totalValueAFG, totalValueUSD, allTimeTotalItems, allTimeTotalValueAFG, allTimeTotalValueUSD, allTimePaidAFG, allTimePaidUSD, allTimeUnpaidAFG, allTimeUnpaidUSD) {
     let hasUSD = shipments.some(s => s.currency === 'USD');
@@ -705,6 +768,32 @@ window.viewMainClientInvoice = async function (invoiceNumber) {
         const response = await fetch(`/api/invoices/${invoiceNumber}`);
         if (response.ok) {
             const invoice = await response.json();
+
+            let items = (invoice.items || []).map(item => {
+                let name = item.item_name || item.item;
+                let currency = getItemCurrency(name);
+                let price = parseFloat(item.selling_price) || 0;
+                let qty = parseInt(item.quantity) || 0;
+                let total = parseFloat(item.total_price) || (price * qty);
+                return { name, date: item.date || '-', qty, price, total, currency };
+            });
+            let afgItems = items.filter(i => i.currency !== 'USD');
+            let usdItems = items.filter(i => i.currency === 'USD');
+            let totalAFG = afgItems.reduce((sum, i) => sum + i.total, 0);
+            let totalUSD = usdItems.reduce((sum, i) => sum + i.total, 0);
+            let hasUSD = usdItems.length > 0;
+
+            let allTimeShipments = mainClientToBranchShipments.filter(s => s.branch === invoice.branch).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+            let allTimeAfg = allTimeShipments.filter(s => s.currency !== 'USD');
+            let allTimeUsd = allTimeShipments.filter(s => s.currency === 'USD');
+            let allTimeTotalItems = allTimeShipments.reduce((sum, s) => sum + s.qty, 0);
+            let allTimeTotalValueAFG = allTimeAfg.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
+            let allTimeTotalValueUSD = allTimeUsd.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
+            let allTimePaidAFG = allTimeAfg.reduce((sum, s) => sum + getShipmentPaidAmount(s), 0);
+            let allTimePaidUSD = allTimeUsd.reduce((sum, s) => sum + getShipmentPaidAmount(s), 0);
+            let allTimeUnpaidAFG = allTimeTotalValueAFG - allTimePaidAFG;
+            let allTimeUnpaidUSD = allTimeTotalValueUSD - allTimePaidUSD;
+
             document.getElementById('invoiceModalContent').innerHTML = `
                 <div class="invoice-print">
                     <div class="invoice-header"><h2>Haqyar Mangal Trading Company</h2><h3>Shipment Invoice</h3></div>
@@ -715,18 +804,27 @@ window.viewMainClientInvoice = async function (invoiceNumber) {
                         <div class="invoice-info-item"><div class="label">Date</div><div class="value">${invoice.date}</div></div>
                     </div>
                     <table class="invoice-table">
-                        <thead><tr><th>Item Name</th><th>Date</th><th>Quantity</th><th>Selling Price</th><th>Total Price</th></tr></thead>
-                        <tbody>${invoice.items && invoice.items.length > 0 ? invoice.items.map(item => `<tr><td>${item.item_name}</td><td>${item.date || '-'}</td><td>${item.quantity}</td><td>${formatMoney(item.selling_price)}</td><td>${formatMoney(item.total_price)}</td></tr>`).join('') : '<tr><td colspan="5" style="text-align:center;">No items found</td></tr>'}</tbody>
-                        <tfoot><tr class="grand-total"><td colspan="3"><strong>Total Items: ${invoice.total_items || 0}</strong></td><td></td><td><strong>${formatMoney(invoice.total_value || 0)}</strong></td></tr></tfoot>
+                        <thead><tr><th>Item Name</th><th>Currency</th><th>Date</th><th>Quantity</th><th>Selling Price</th><th>Total Price</th></tr></thead>
+                        <tbody>${items.length > 0 ? items.map(item => `<tr><td>${item.name}</td><td>${item.currency}</td><td>${item.date}</td><td>${item.qty}</td><td>${formatByCurrency(item.price, item.currency)}</td><td>${formatByCurrency(item.total, item.currency)}</td></tr>`).join('') : '<tr><td colspan="6" style="text-align:center;">No items found</td></tr>'}</tbody>
+                        <tfoot>
+                            <tr class="grand-total"><td colspan="5"><strong>Total Items: ${invoice.total_items || 0}</strong></td><td><strong>${formatMoney(totalAFG)}</strong></td></tr>
+                            ${hasUSD ? `<tr class="grand-total"><td colspan="5"><strong>Grand Total (USD):</strong></td><td><strong>${formatByCurrency(totalUSD,'USD')}</strong></td></tr>` : ''}
+                        </tfoot>
                     </table>
                     <div class="all-time-summary" style="margin-top:30px;padding-top:20px;border-top:2px solid #333;">
-                        <h3 style="text-align:center;margin-bottom:15px;">Branch Summary (At Time of Invoice)</h3>
-                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span><strong>Total Items Shipped (All Time):</strong></span><span><strong>${parseInt(invoice.all_time_total_items) || 0}</strong></span></div>
-                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span><strong>Total Value (All Time):</strong></span><span><strong>${formatMoney(parseFloat(invoice.all_time_total_value) || 0)}</strong></span></div>
-                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span><strong>Total Paid (All Time):</strong></span><span style="color:#22c55e;"><strong>${formatMoney(parseFloat(invoice.all_time_paid) || 0)}</strong></span></div>
-                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span><strong>Total Unpaid (All Time):</strong></span><span style="color:#ef4444;"><strong>${formatMoney(parseFloat(invoice.all_time_unpaid) || 0)}</strong></span></div>
+                        <h3 style="text-align:center;margin-bottom:15px;">Branch Summary (Current)</h3>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span><strong>Total Items Shipped (All Time):</strong></span><span><strong>${allTimeTotalItems}</strong></span></div>
+                        <h4 style="margin:15px 0 8px;color:#166534;">Afghani (AFG)</h4>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Value:</span><span><strong>${formatMoney(allTimeTotalValueAFG)}</strong></span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Paid:</span><span style="color:#22c55e;"><strong>${formatMoney(allTimePaidAFG)}</strong></span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Unpaid:</span><span style="color:#ef4444;"><strong>${formatMoney(allTimeUnpaidAFG)}</strong></span></div>
+                        ${allTimeUsd.length > 0 ? `
+                        <h4 style="margin:15px 0 8px;color:#2563eb;">US Dollar (USD)</h4>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Value:</span><span><strong>${formatByCurrency(allTimeTotalValueUSD,'USD')}</strong></span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Paid:</span><span style="color:#22c55e;"><strong>${formatByCurrency(allTimePaidUSD,'USD')}</strong></span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Total Unpaid:</span><span style="color:#ef4444;"><strong>${formatByCurrency(allTimeUnpaidUSD,'USD')}</strong></span></div>` : ''}
                     </div>
-                    <div class="invoice-total">Grand Total: ${formatMoney(invoice.total_value || 0)}</div>
+                    <div class="invoice-total">Grand Total (AFG): ${formatMoney(totalAFG)}${hasUSD ? ` + ${formatByCurrency(totalUSD,'USD')}` : ''}</div>
                     <div class="invoice-footer"><p>Generated by ${invoice.main_client}</p><p>This is a computer generated invoice.</p></div>
                 </div>
                 <div style="text-align:center;margin-top:20px;" class="no-print">
@@ -737,7 +835,6 @@ window.viewMainClientInvoice = async function (invoiceNumber) {
         }
     } catch (err) { alert('Failed to load invoice details'); }
 };
-
 
 // ==================== MAIN CLIENT REPORT ====================
 async function renderMainClientReport() {
