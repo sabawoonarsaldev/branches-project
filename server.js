@@ -28,7 +28,7 @@ const SALT_ROUNDS = 10;
 
 // // // MySQL connection pool (Aiven / production ready)
 
-// const ca_path = process.env.CA || '/etc/secrets/ca.pem';
+const ca_path = process.env.CA || '/etc/secrets/ca.pem';
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
