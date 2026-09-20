@@ -674,11 +674,18 @@ function buildShipmentStatsCardInner(purchaseValue, saleValue, shipmentsList, cu
     let fmt = (v) => formatByCurrency(v, currency);
     let isUSD = currency === 'USD';
     let totalShipmentValue = shipmentsList.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
-    let totalPaid = shipmentsList.reduce((sum, s) => {
-        let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? shipmentPayments[s.uniqueKey] : 0;
-        return sum + Math.min(paid, getShipmentCorrectTotal(s));
-    }, 0);
-    let totalUnpaid = Math.max(0, totalShipmentValue - totalPaid);
+
+    let totalPaidConfirmed = 0, totalPartial = 0, totalUnpaid = 0;
+    shipmentsList.forEach(s => {
+        let total = getShipmentCorrectTotal(s);
+        let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? Math.min(shipmentPayments[s.uniqueKey], total) : 0;
+        let unpaid = Math.max(0, total - paid);
+        let displayStatus = getShipmentDisplayStatus(s);
+        if (displayStatus === 'paid') totalPaidConfirmed += paid;
+        else if (displayStatus === 'partial') totalPartial += paid;
+        totalUnpaid += unpaid;
+    });
+
     let hStyle = isUSD ? 'style="color:white;"' : '';
     let subStyle = isUSD ? 'style="color:rgba(255,255,255,0.8);"' : '';
 
@@ -689,7 +696,8 @@ function buildShipmentStatsCardInner(purchaseValue, saleValue, shipmentsList, cu
         <div style="margin-top:20px;">
             <div style="display:flex;justify-content:space-between;margin-bottom:8px;" ${subStyle}><span>Total Purchase Value:</span><span><strong>${fmt(purchaseValue)}</strong></span></div>
             <div style="display:flex;justify-content:space-between;margin-bottom:8px;" ${subStyle}><span>Total Sale Value:</span><span><strong>${fmt(saleValue)}</strong></span></div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px;" ${subStyle}><span>Total Paid (by Branches):</span><span class="profit-text"><strong>${fmt(totalPaid)}</strong></span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;" ${subStyle}><span>Total Paid (Confirmed by Admin):</span><span class="profit-text"><strong>${fmt(totalPaidConfirmed)}</strong></span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;" ${subStyle}><span>Total Partial (Awaiting Admin Confirm):</span><span style="color:#f59e0b;"><strong>${fmt(totalPartial)}</strong></span></div>
             <div style="display:flex;justify-content:space-between;" ${subStyle}><span>Total Unpaid (by Branches):</span><span class="loss-text"><strong>${fmt(totalUnpaid)}</strong></span></div>
         </div>`;
 }
@@ -1451,7 +1459,7 @@ async function showBranchReportInAdmin(branch) {
             return sum + Math.min(paid, getShipmentCorrectTotal(s));
         }, 0);
         let totalUnpaid = Math.max(0, totalReceivedValue - totalPaid);
-
+        let totalConfirmedPaid = branchShipments.filter(s => getShipmentDisplayStatus(s) === 'paid').reduce((sum,s)=>sum+getShipmentCorrectTotal(s),0);
         let filteredSales = filteredSalesRaw.filter(s => s.currency === currency);
         let allReturns = allReturnsRaw.filter(r => r.currency === currency);
         let approvedReturns = allReturns.filter(r => r.status === 'approved' || r.status === 'paid');
@@ -1595,13 +1603,17 @@ function loadTotalAmount() {
 
     function calcTotals(list) {
         let grandTotal = list.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
-        let totalPaid = list.reduce((sum, s) => {
-            let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) 
-                ? shipmentPayments[s.uniqueKey] : 0;
-            return sum + Math.min(paid, getShipmentCorrectTotal(s));
-        }, 0);
-        let totalUnpaid = Math.max(0, grandTotal - totalPaid);
-        return { grandTotal, totalPaid, totalUnpaid };
+        let totalConfirmed = 0, totalPartial = 0, totalUnpaid = 0;
+        list.forEach(s => {
+            let total = getShipmentCorrectTotal(s);
+            let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? Math.min(shipmentPayments[s.uniqueKey], total) : 0;
+            let unpaid = Math.max(0, total - paid);
+            let displayStatus = getShipmentDisplayStatus(s);
+            if (displayStatus === 'paid') totalConfirmed += paid;
+            else if (displayStatus === 'partial') totalPartial += paid;
+            totalUnpaid += unpaid;
+        });
+        return { grandTotal, totalConfirmed, totalPartial, totalUnpaid };
     }
 
     let afgTotals = calcTotals(afgShipments);
@@ -1613,36 +1625,44 @@ function loadTotalAmount() {
         container.innerHTML = `
             <div class="payment-summary">
                 <h3><i class="fas fa-chart-pie"></i> Payment Summary (AFG) ${branch ? 'for ' + branch + ' Branch' : 'for All Branches'}</h3>
-                <div class="summary-stats" style="grid-template-columns:repeat(3,1fr);">
+                <div class="summary-stats" style="grid-template-columns:repeat(4,1fr);">
                     <div class="summary-item" style="background:linear-gradient(145deg,#3b82f6,#2563eb);color:white;">
                         <div class="label" style="color:rgba(255,255,255,0.8);">Grand Total</div>
-                        <div class="value" style="color:white;font-size:28px;">${formatMoney(afgTotals.grandTotal)}</div>
+                        <div class="value" style="color:white;font-size:24px;">${formatMoney(afgTotals.grandTotal)}</div>
                     </div>
                     <div class="summary-item" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;">
                         <div class="label" style="color:rgba(255,255,255,0.8);">Total Paid</div>
-                        <div class="value" style="color:white;font-size:28px;">${formatMoney(afgTotals.totalPaid)}</div>
+                        <div class="value" style="color:white;font-size:24px;">${formatMoney(afgTotals.totalConfirmed)}</div>
+                    </div>
+                    <div class="summary-item" style="background:linear-gradient(145deg,#f59e0b,#d97706);color:white;">
+                        <div class="label" style="color:rgba(255,255,255,0.8);">Total Partial</div>
+                        <div class="value" style="color:white;font-size:24px;">${formatMoney(afgTotals.totalPartial)}</div>
                     </div>
                     <div class="summary-item" style="background:linear-gradient(145deg,#ef4444,#b91c1c);color:white;">
                         <div class="label" style="color:rgba(255,255,255,0.8);">Total Unpaid</div>
-                        <div class="value" style="color:white;font-size:28px;">${formatMoney(afgTotals.totalUnpaid)}</div>
+                        <div class="value" style="color:white;font-size:24px;">${formatMoney(afgTotals.totalUnpaid)}</div>
                     </div>
                 </div>
             </div>
             ${usdShipments.length > 0 ? `
             <div class="payment-summary" style="border:2px solid #3b82f6;margin-top:20px;">
                 <h3 style="color:#2563eb;"><i class="fas fa-dollar-sign"></i> Payment Summary (USD) ${branch ? 'for ' + branch + ' Branch' : 'for All Branches'}</h3>
-                <div class="summary-stats" style="grid-template-columns:repeat(3,1fr);">
+                <div class="summary-stats" style="grid-template-columns:repeat(4,1fr);">
                     <div class="summary-item" style="background:linear-gradient(145deg,#1d4ed8,#1e40af);color:white;">
                         <div class="label" style="color:rgba(255,255,255,0.8);">Grand Total</div>
-                        <div class="value" style="color:white;font-size:28px;">${formatByCurrency(usdTotals.grandTotal,'USD')}</div>
+                        <div class="value" style="color:white;font-size:24px;">${formatByCurrency(usdTotals.grandTotal,'USD')}</div>
                     </div>
                     <div class="summary-item" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;">
                         <div class="label" style="color:rgba(255,255,255,0.8);">Total Paid</div>
-                        <div class="value" style="color:white;font-size:28px;">${formatByCurrency(usdTotals.totalPaid,'USD')}</div>
+                        <div class="value" style="color:white;font-size:24px;">${formatByCurrency(usdTotals.totalConfirmed,'USD')}</div>
+                    </div>
+                    <div class="summary-item" style="background:linear-gradient(145deg,#f59e0b,#d97706);color:white;">
+                        <div class="label" style="color:rgba(255,255,255,0.8);">Total Partial</div>
+                        <div class="value" style="color:white;font-size:24px;">${formatByCurrency(usdTotals.totalPartial,'USD')}</div>
                     </div>
                     <div class="summary-item" style="background:#64748b;color:white;">
                         <div class="label" style="color:rgba(255,255,255,0.8);">Total Unpaid</div>
-                        <div class="value" style="color:white;font-size:28px;">${formatByCurrency(usdTotals.totalUnpaid,'USD')}</div>
+                        <div class="value" style="color:white;font-size:24px;">${formatByCurrency(usdTotals.totalUnpaid,'USD')}</div>
                     </div>
                 </div>
             </div>` : ''}`;

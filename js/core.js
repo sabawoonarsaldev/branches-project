@@ -55,6 +55,9 @@ let dailyPayments = {};
 let billPayments = {};
 let branchBills = {};
 let shipmentPayments = {};
+let shipmentAdminConfirmed = {};
+let shipmentMainClientPaidDate = {};
+let shipmentConfirmedDate = {};
 let currentUser = null;
 
 // ==================== DATE HELPERS ====================
@@ -285,35 +288,44 @@ async function refreshDataFromServer() {
         } catch (err) { console.log('Error loading main client payments:', err); }
 
         // Load shipment payments
+                // Load shipment payments
         let freshShipmentPayments = {};
+        let freshShipmentAdminConfirmed = {};
+        let freshShipmentMainClientPaidDate = {};
+        let freshShipmentConfirmedDate = {};
+
+        function absorbPaymentRow(payment) {
+            freshShipmentPayments[payment.shipment_id] = parseFloat(payment.paid_amount) || 0;
+            freshShipmentAdminConfirmed[payment.shipment_id] = payment.confirmed_by_admin === 1 || payment.confirmed_by_admin === true;
+            freshShipmentMainClientPaidDate[payment.shipment_id] = payment.main_client_paid_date ? String(payment.main_client_paid_date).split('T')[0] : null;
+            freshShipmentConfirmedDate[payment.shipment_id] = payment.confirmed_date ? String(payment.confirmed_date).split('T')[0] : null;
+        }
+
         try {
             if (currentUser && currentUser.role === 'admin') {
                 const paymentsRes = await fetch('/api/shipment-payments/all');
                 if (paymentsRes.ok) {
                     const paymentsData = await paymentsRes.json();
-                    for (const payment of paymentsData) {
-                        freshShipmentPayments[payment.shipment_id] = parseFloat(payment.paid_amount) || 0;
-                    }
+                    for (const payment of paymentsData) absorbPaymentRow(payment);
                 }
             } else if (currentUser && currentUser.role === 'mainclient') {
                 const paymentsRes = await fetch(`/api/shipment-payments/mainclient/${currentUser.username}`);
                 if (paymentsRes.ok) {
                     const paymentsData = await paymentsRes.json();
-                    for (const payment of paymentsData) {
-                        freshShipmentPayments[payment.shipment_id] = parseFloat(payment.paid_amount) || 0;
-                    }
+                    for (const payment of paymentsData) absorbPaymentRow(payment);
                 }
             } else if (currentUser && currentUser.role === 'branch') {
                 const paymentsRes = await fetch(`/api/shipment-payments/branch/${currentUser.username}`);
                 if (paymentsRes.ok) {
                     const paymentsData = await paymentsRes.json();
-                    for (const payment of paymentsData) {
-                        freshShipmentPayments[payment.shipment_id] = parseFloat(payment.paid_amount) || 0;
-                    }
+                    for (const payment of paymentsData) absorbPaymentRow(payment);
                 }
             }
         } catch (err) { console.log('Error loading shipment payments:', err); }
         shipmentPayments = freshShipmentPayments;
+        shipmentAdminConfirmed = freshShipmentAdminConfirmed;
+        shipmentMainClientPaidDate = freshShipmentMainClientPaidDate;
+        shipmentConfirmedDate = freshShipmentConfirmedDate;
 
         // Load main client distributed
         mainClientDistributed = {};
@@ -417,6 +429,7 @@ async function refreshDataFromServer() {
         }
 
         // Load branch inventory
+                // Load branch inventory
         let freshBranchInventory = {};
         if (currentUser && currentUser.role === 'branch') {
             try {
@@ -434,6 +447,21 @@ async function refreshDataFromServer() {
             } catch (err) {
                 freshBranchInventory[currentUser.username] = [];
             }
+        } else if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'mainclient')) {
+            try {
+                const allBranchUsers = freshUsers.filter(u => u.role === 'branch' && !u.deleted);
+                for (const branchUser of allBranchUsers) {
+                    const branchInvRes = await fetch(`/api/branch-inventory/${branchUser.username}`);
+                    const branchInvData = await branchInvRes.json();
+                    freshBranchInventory[branchUser.username] = branchInvData.map(b => ({
+                        id: b.id, name: b.item_name,
+                        quantity: parseInt(b.quantity), purchasePrice: parseFloat(b.purchase_price),
+                        sellingPrice: parseFloat(b.selling_price), supplier: b.supplier,
+                        shipmentDate: b.shipment_date, distributionId: b.distribution_id,
+                        originalQuantity: parseInt(b.original_quantity) || parseInt(b.quantity)
+                    }));
+                }
+            } catch (err) { console.log('Error loading all branch inventories:', err); }
         }
 
         // Load discounts
@@ -459,10 +487,11 @@ async function refreshDataFromServer() {
         } catch (err) { console.log('Error loading discounts:', err); }
 
         // Update globals
+                // Update globals
         mainInventory = convertedInventory;
         users = freshUsers;
         mainClientToBranchShipments = convertedShipments;
-        if (currentUser && currentUser.role === 'branch') branchInventory = freshBranchInventory;
+        if (currentUser && (currentUser.role === 'branch' || currentUser.role === 'admin' || currentUser.role === 'mainclient')) branchInventory = freshBranchInventory;
         mainClientItems = mainInventory.map(item => ({
                 id: item.id, name: item.name,
                 sellingPrice: item.sellingPrice, purchasePrice: item.purchasePrice,
@@ -734,6 +763,19 @@ function getShipmentStatus(shipment) {
     if (paidAmount >= totalPrice || Math.abs(totalPrice - paidAmount) < 0.01) return 'paid';
     if (paidAmount > 0) return 'partial';
     return 'unpaid';
+}
+
+function getShipmentDisplayStatus(shipment) {
+    let amountStatus = getShipmentStatus(shipment);
+    if (amountStatus === 'paid') {
+        let confirmed = shipment.uniqueKey && shipmentAdminConfirmed[shipment.uniqueKey] === true;
+        return confirmed ? 'paid' : 'partial';
+    }
+    return amountStatus;
+}
+
+function isShipmentAwaitingAdminConfirm(shipment) {
+    return getShipmentStatus(shipment) === 'paid' && !(shipment.uniqueKey && shipmentAdminConfirmed[shipment.uniqueKey]);
 }
 
 function updateShipmentReminder(shipment, paymentAmount) {

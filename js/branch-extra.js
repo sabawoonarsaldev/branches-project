@@ -129,7 +129,7 @@ function renderBranchPayments() {
             correctTotal
         );
         let unpaidAmount = Math.max(0, correctTotal - paidAmount);
-        let status = paidAmount >= correctTotal ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid');
+        let status = getShipmentDisplayStatus(s);
         return { ...s, totalPrice: correctTotal, paidAmount, unpaidAmount, status };
     });
 

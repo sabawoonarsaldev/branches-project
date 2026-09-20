@@ -433,7 +433,8 @@ function renderAdminPayments() {
                     </div>
                 </div>
             </div>
-            <button class="btn-filter" onclick="loadAdminBranchPayments()"><i class="fas fa-search"></i> View Payments</button>
+                        <button class="btn-filter" onclick="loadAdminBranchPayments()"><i class="fas fa-search"></i> View Payments</button>
+            <button class="btn-filter" onclick="showSection('allPayments')" style="background:#166534;margin-top:10px;"><i class="fas fa-chart-bar"></i> All Payments</button>
         </div>
         <div id="adminPaymentsContainer" style="display:none;"></div>`;
     document.getElementById('content').innerHTML = html;
@@ -450,6 +451,124 @@ window.toggleAdminPaymentCustomDate = function () {
     let period = document.getElementById('adminPaymentTimePeriod').value;
     document.getElementById('adminPaymentCustomDate').style.display = period === 'custom' ? 'block' : 'none';
 };
+
+async function renderAllPaymentsPage() {
+    await refreshDataFromServer();
+    let branches = getBranchUsers();
+
+    let html = `
+        <div class="header-actions"><h2 class="page-title">All Payments Overview</h2><button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button></div>
+        <div class="branch-selector" style="flex-direction:column;align-items:stretch;">
+            <div style="display:flex;gap:20px;margin-bottom:20px;flex-wrap:wrap;">
+                <div class="form-group" style="flex:1;min-width:200px;"><label><i class="fas fa-code-branch"></i> Branch</label>
+                    <select id="allPayBranchSelect" onchange="loadAllPaymentsData()">
+                        <option value="">-- All Branches --</option>
+                        ${branches.map(b => `<option value="${b.username}">${b.username} Branch</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group" style="flex:1;min-width:200px;"><label><i class="fas fa-calendar"></i> Time Period</label>
+                    <select id="allPayTimePeriod" onchange="toggleAllPayCustomRange()">
+                        <option value="all">All Time</option>
+                        <option value="today">Today</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="custom">Custom Range</option>
+                    </select>
+                </div>
+                <div class="form-group" id="allPayCustomRange" style="display:none;flex:2;min-width:250px;">
+                    <label><i class="fas fa-calendar-alt"></i> Date Range</label>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="date" id="allPayStartDate" value="${getWeekAgoDate()}">
+                        <span>to</span>
+                        <input type="date" id="allPayEndDate" value="${getTodayDate()}">
+                    </div>
+                </div>
+            </div>
+            <button class="btn-filter" onclick="loadAllPaymentsData()"><i class="fas fa-search"></i> Load</button>
+        </div>
+        <div id="allPaymentsResultContainer" style="margin-top:30px;"></div>`;
+    document.getElementById('content').innerHTML = html;
+    loadAllPaymentsData();
+}
+
+window.toggleAllPayCustomRange = function() {
+    let period = document.getElementById('allPayTimePeriod')?.value;
+    let range = document.getElementById('allPayCustomRange');
+    if (range) range.style.display = period === 'custom' ? 'block' : 'none';
+};
+
+window.loadAllPaymentsData = function() {
+    let branch = document.getElementById('allPayBranchSelect')?.value;
+    let period = document.getElementById('allPayTimePeriod')?.value || 'all';
+    let now = new Date();
+    let startDate = new Date(2000,0,1), endDate = new Date();
+    endDate.setHours(23,59,59,999);
+
+    if (period === 'today') startDate = new Date(now.toDateString());
+    else if (period === 'weekly') { startDate = new Date(now); startDate.setDate(now.getDate()-7); }
+    else if (period === 'monthly') startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    else if (period === 'custom') {
+        let s = document.getElementById('allPayStartDate')?.value;
+        let e = document.getElementById('allPayEndDate')?.value;
+        if (s) startDate = new Date(s);
+        if (e) { endDate = new Date(e); endDate.setHours(23,59,59,999); }
+    }
+    let isAll = period === 'all';
+
+    function buildBlock(currency) {
+        let fmt = (v) => formatByCurrency(v, currency);
+        let isUSD = currency === 'USD';
+        let invItems = isAll ? mainInventory : mainInventory.filter(i => {
+            if (!i.date) return false;
+            let d = new Date(i.date);
+            return d >= startDate && d <= endDate;
+        });
+        let invCur = invItems.filter(i => (i.currency||'AFG') === currency);
+        let totalPurchase = invCur.reduce((sum,i)=>sum+((parseFloat(i.purchasePrice)||0)*(parseInt(i.quantity)||0)),0);
+        let totalSale = invCur.reduce((sum,i)=>sum+calculateItemSaleValue(i),0);
+
+        let adminExp = expenses.filter(e => (e.currency||'AFG')===currency).filter(e => isAll || (new Date(e.date) >= startDate && new Date(e.date) <= endDate)).reduce((s,e)=>s+e.amount,0);
+        let mcExp = Object.values(mainClientExpenses).reduce((sum,arr)=>sum+arr.filter(e=>(e.currency||'AFG')===currency).filter(e=>isAll||(new Date(e.date)>=startDate&&new Date(e.date)<=endDate)).reduce((s,e)=>s+e.amount,0),0);
+        let totalExpenses = adminExp + mcExp;
+        let totalProfit = totalSale - totalPurchase - totalExpenses;
+
+        let shipments = branch ? mainClientToBranchShipments.filter(s=>s.branch===branch) : mainClientToBranchShipments;
+        shipments = shipments.filter(s => getItemCurrency(s.item) === currency);
+        shipments = isAll ? shipments : shipments.filter(s => { let d=new Date(s.date); return d>=startDate && d<=endDate; });
+
+        let totalPaidValue = 0, totalPartialValue = 0, totalUnpaidValue = 0;
+        shipments.forEach(s => {
+            let total = getShipmentCorrectTotal(s);
+            let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey]!==undefined) ? Math.min(shipmentPayments[s.uniqueKey], total) : 0;
+            let unpaid = Math.max(0, total - paid);
+            let status = getShipmentDisplayStatus(s);
+            if (status === 'paid') totalPaidValue += paid;
+            else if (status === 'partial') totalPartialValue += paid;
+            totalUnpaidValue += unpaid;
+        });
+
+        let cardBg = isUSD ? 'style="background:linear-gradient(145deg,#3b82f6,#2563eb);color:white;"' : '';
+        let hStyle = isUSD ? 'style="color:white;"' : '';
+
+        return `
+        <h3 style="margin-bottom:15px;"><i class="fas ${isUSD?'fa-dollar-sign':'fa-money-bill-wave'}"></i> ${isUSD?'US Dollar (USD)':'Afghani (AFG)'} ${branch ? '- '+branch : '- All Branches'}</h3>
+        <div class="report-grid">
+            <div class="report-card" ${cardBg}><h3 ${hStyle}><i class="fas fa-shopping-cart"></i> Total Purchase Price</h3><div class="report-number" ${hStyle}>${fmt(totalPurchase)}</div></div>
+            <div class="report-card" ${cardBg}><h3 ${hStyle}><i class="fas fa-tags"></i> Total Selling Price</h3><div class="report-number" ${hStyle}>${fmt(totalSale)}</div></div>
+            <div class="report-card" ${cardBg}><h3 ${hStyle}><i class="fas fa-file-invoice"></i> Total Expenses</h3><div class="report-number" ${hStyle}>${fmt(totalExpenses)}</div><div class="report-label" ${hStyle}>Admin + Main Client only</div></div>
+            <div class="report-card" ${cardBg}><h3 ${hStyle}><i class="fas fa-wallet"></i> Total Profit</h3><div class="report-number ${!isUSD ? (totalProfit>=0?'profit-text':'loss-text') : ''}" ${hStyle}>${fmt(totalProfit)}</div></div>
+        </div>
+        <div class="report-grid" style="margin-top:20px;">
+            <div class="report-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;"><h3 style="color:white;">Total Paid Value</h3><div class="report-number" style="color:white;">${fmt(totalPaidValue)}</div></div>
+            <div class="report-card" style="background:linear-gradient(145deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;">Total Partial Value</h3><div class="report-number" style="color:white;">${fmt(totalPartialValue)}</div></div>
+            <div class="report-card" style="background:linear-gradient(145deg,#ef4444,#b91c1c);color:white;"><h3 style="color:white;">Total Unpaid Value</h3><div class="report-number" style="color:white;">${fmt(totalUnpaidValue)}</div></div>
+        </div>`;
+    }
+
+    let html = buildBlock('AFG') + `<div style="margin-top:40px;">${buildBlock('USD')}</div>`;
+    document.getElementById('allPaymentsResultContainer').innerHTML = html;
+};
+
 
 window.loadAdminBranchPayments = async function() {
     let branch = document.getElementById('adminPaymentBranchSelect')?.value;
@@ -490,8 +609,9 @@ window.loadAdminBranchPayments = async function() {
             correctTotal
         );
         let unpaidAmount = Math.max(0, correctTotal - paidAmount);
-        let status = paidAmount >= correctTotal ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid');
-        return { ...s, totalPrice: correctTotal, paidAmount, unpaidAmount, status, currency };
+        let status = getShipmentDisplayStatus(s);
+        let awaitingConfirm = isShipmentAwaitingAdminConfirm(s);
+        return { ...s, totalPrice: correctTotal, paidAmount, unpaidAmount, status, currency, awaitingConfirm };
     });
 
     let afgShipments = processedShipments.filter(s => s.currency !== 'USD');
@@ -503,6 +623,13 @@ window.loadAdminBranchPayments = async function() {
     let totalValueUSD = usdShipments.reduce((sum, s) => sum + s.totalPrice, 0);
     let totalPaidUSD = usdShipments.reduce((sum, s) => sum + s.paidAmount, 0);
     let totalUnpaidUSD = usdShipments.reduce((sum, s) => sum + s.unpaidAmount, 0);
+
+    let afgAwaiting = afgShipments.filter(s => s.awaitingConfirm);
+    let usdAwaiting = usdShipments.filter(s => s.awaitingConfirm);
+    window._adminAwaitingKeys = {
+        AFG: afgAwaiting.map(s => s.uniqueKey).filter(Boolean),
+        USD: usdAwaiting.map(s => s.uniqueKey).filter(Boolean)
+    };
 
     let container = document.getElementById('adminPaymentsContainer');
     if (!container) return;
@@ -516,6 +643,9 @@ window.loadAdminBranchPayments = async function() {
                 <div class="summary-item"><div class="label">Total Unpaid</div><div class="value" style="color:#ef4444;">${formatMoney(totalUnpaidAFG)}</div></div>
             </div>
         </div>
+        <div class="payment-actions" style="text-align:right;margin-bottom:20px;">
+            <button class="btn-bulk-payment" onclick="bulkConfirmAdminPayments('AFG')" ${afgAwaiting.length===0?'disabled':''}><i class="fas fa-check-double"></i> Confirm All (AFG) - ${afgAwaiting.length}</button>
+        </div>
         ${usdShipments.length > 0 ? `
         <div class="payment-summary" style="border:2px solid #3b82f6;">
             <h3 style="color:#2563eb;"><i class="fas fa-dollar-sign"></i> Payment Summary (USD)</h3>
@@ -524,43 +654,57 @@ window.loadAdminBranchPayments = async function() {
                 <div class="summary-item"><div class="label">Total Paid</div><div class="value" style="color:#22c55e;">${formatByCurrency(totalPaidUSD,'USD')}</div></div>
                 <div class="summary-item"><div class="label">Total Unpaid</div><div class="value" style="color:#ef4444;">${formatByCurrency(totalUnpaidUSD,'USD')}</div></div>
             </div>
+        </div>
+        <div class="payment-actions" style="text-align:right;margin-bottom:20px;">
+            <button class="btn-bulk-payment" onclick="bulkConfirmAdminPayments('USD')" ${usdAwaiting.length===0?'disabled':''}><i class="fas fa-check-double"></i> Confirm All (USD) - ${usdAwaiting.length}</button>
         </div>` : ''}
         ${processedShipments.length === 0 
             ? `<div class="empty-state"><i class="fas fa-box"></i><h3>No Payments Found</h3></div>`
             : `<div class="table-wrapper"><table>
-                <thead><tr><th>Date</th><th>Branch</th><th>Item</th><th>Currency</th><th>Qty</th><th>Price/Unit</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th></tr></thead>
+                <thead><tr><th>Distributed</th><th>Branch</th><th>Item</th><th>Currency</th><th>Qty</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th><th>Main Client Paid</th><th>Admin Confirmed</th><th>Action</th></tr></thead>
                 <tbody>${processedShipments.sort((a,b) => new Date(b.date)-new Date(a.date)).map(s => {
                     let sc = s.status === 'paid' ? 'badge-paid' : (s.status === 'partial' ? 'badge-partial' : 'badge-unpaid');
                     let fmt = (v) => formatByCurrency(v, s.currency);
+                    let mcPaidDate = s.uniqueKey ? (shipmentMainClientPaidDate[s.uniqueKey] || '-') : '-';
+                    let confirmedDate = s.uniqueKey ? (shipmentConfirmedDate[s.uniqueKey] || '-') : '-';
                     return `<tr>
                         <td>${s.date}</td><td>${s.branch}</td><td>${s.item}</td>
                         <td><span class="badge ${s.currency==='USD'?'badge-mainclient':'badge-active'}">${s.currency}</span></td>
                         <td>${s.qty}</td>
-                        <td>${fmt(s.sellingPrice)}</td>
                         <td class="total-value">${fmt(s.totalPrice)}</td>
                         <td class="status-paid">${fmt(s.paidAmount)}</td>
                         <td class="reminder-amount">${fmt(s.unpaidAmount)}</td>
                         <td><span class="badge ${sc}">${s.status.toUpperCase()}</span></td>
+                        <td>${mcPaidDate}</td>
+                        <td>${confirmedDate}</td>
+                        <td>${s.awaitingConfirm ? `<button class="btn btn-success" onclick="confirmAdminShipmentPayment('${s.uniqueKey}')"><i class="fas fa-check-double"></i> Confirm</button>` : (s.status==='paid' ? '<span class="badge badge-paid">✓ Confirmed</span>' : '-')}</td>
                     </tr>`;
                 }).join('')}</tbody>
-                <tfoot>
-                    <tr class="grand-total" style="background:#f0fdf4;">
-                        <td colspan="6"><strong>Grand Total (AFG)</strong></td>
-                        <td><strong>${formatMoney(totalValueAFG)}</strong></td>
-                        <td><strong>${formatMoney(totalPaidAFG)}</strong></td>
-                        <td><strong>${formatMoney(totalUnpaidAFG)}</strong></td>
-                        <td></td>
-                    </tr>
-                    ${usdShipments.length > 0 ? `<tr class="grand-total" style="background:#eff6ff;">
-                        <td colspan="6"><strong>Grand Total (USD)</strong></td>
-                        <td><strong>${formatByCurrency(totalValueUSD,'USD')}</strong></td>
-                        <td><strong>${formatByCurrency(totalPaidUSD,'USD')}</strong></td>
-                        <td><strong>${formatByCurrency(totalUnpaidUSD,'USD')}</strong></td>
-                        <td></td>
-                    </tr>` : ''}
-                </tfoot>
             </table></div>`
         }`;
+};
+
+window.bulkConfirmAdminPayments = async function(currency) {
+    let keys = (window._adminAwaitingKeys && window._adminAwaitingKeys[currency]) || [];
+    if (keys.length === 0) { alert('No payments awaiting confirmation.'); return; }
+    if (!confirm(`Confirm ${keys.length} payment(s) in ${currency}?`)) return;
+    for (const key of keys) {
+        try { await confirmShipmentPaymentByAdmin(key); } catch(e) { console.log(e); }
+    }
+    await refreshDataFromServer();
+    await loadAdminBranchPayments();
+    alert('✅ Payments confirmed successfully!');
+};
+
+
+window.confirmAdminShipmentPayment = async function(uniqueKey) {
+    if (!confirm('Confirm that you have received this payment from the Main Client?')) return;
+    try {
+        await confirmShipmentPaymentByAdmin(uniqueKey);
+        await refreshDataFromServer();
+        await loadAdminBranchPayments();
+        alert('✅ Payment confirmed successfully!');
+    } catch (err) { alert('Failed to confirm payment: ' + err.message); }
 };
 
 // ==================== ADMIN INVOICES ====================

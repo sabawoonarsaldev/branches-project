@@ -140,7 +140,7 @@ function displayPayments(shipments, selectedDate, selectedBranch, mode = 'date')
         let totalPrice = s.totalPrice !== undefined ? s.totalPrice : (s.sellingPrice * s.qty);
         let paidAmount = Math.min(s.paidAmount || 0, totalPrice);
         let unpaidAmount = Math.max(0, totalPrice - paidAmount);
-        let status = paidAmount >= totalPrice ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid');
+        let status = getShipmentDisplayStatus(s);
         let currency = getItemCurrency(s.item);
         return { ...s, totalPrice, paidAmount, unpaidAmount, status, currency };
     });
@@ -469,6 +469,121 @@ window.toggleBillingTimePeriodDisabled = function() {
     if (customRange) customRange.style.opacity = isBillSelected ? '0.5' : '1';
 };
 
+function isShipmentEditable(shipment) {
+    if (!shipment.uniqueKey) return false;
+    let paid = shipmentPayments[shipment.uniqueKey] || 0;
+    if (paid > 0) return false;
+
+    let hasReturn = branchReturns.some(r =>
+        r.branch === shipment.branch && r.itemName === shipment.item &&
+        (r.status === 'approved' || r.status === 'paid')
+    );
+    if (hasReturn) return false;
+
+    let branchItem = (branchInventory[shipment.branch] || []).find(i => i.distributionId === shipment.uniqueKey);
+    if (branchItem) {
+        let orig = branchItem.originalQuantity || branchItem.quantity;
+        if (branchItem.quantity !== orig) return false; // چیزی فروخته شده
+    }
+    return true;
+}
+
+window.showEditShipmentModal = function (uniqueKey) {
+    let shipment = mainClientToBranchShipments.find(s => s.uniqueKey === uniqueKey);
+    if (!shipment) return;
+    if (!isShipmentEditable(shipment)) { alert('This item can no longer be edited (paid, sold, or returned).'); return; }
+
+    let currency = getItemCurrency(shipment.item);
+    document.getElementById('modalContent').innerHTML = `
+        <div class="modal-header"><h3>Edit Quantity: ${shipment.item} <span class="badge ${currency==='USD'?'badge-mainclient':'badge-active'}">${currency}</span></h3><button onclick="closeModal()">&times;</button></div>
+        <div class="form-group"><label>Current Quantity: ${shipment.qty}</label></div>
+        <div class="form-group"><label>New Quantity</label><input type="number" id="editShipQty" min="1" value="${shipment.qty}">
+            <small style="color:#166534;">Set to 0 to remove this item from the bill</small>
+        </div>
+        <div class="form-group"><label>Selling Price</label><input type="text" value="${formatByCurrency(shipment.sellingPrice, currency)}" readonly style="background:#f1f5f9;"></div>
+        <button class="save-btn" onclick="saveEditedShipment('${uniqueKey}')"><i class="fas fa-save"></i> Save Changes</button>`;
+    document.getElementById('modal').classList.add('active');
+};
+
+window.saveEditedShipment = async function (uniqueKey) {
+    let shipment = mainClientToBranchShipments.find(s => s.uniqueKey === uniqueKey);
+    if (!shipment) return;
+
+    let newQty = parseInt(document.getElementById('editShipQty').value);
+    if (isNaN(newQty) || newQty < 0) {
+        alert('Please enter a valid quantity'); return;
+    }
+
+    if (newQty === 0) {
+        await deleteShipmentItemInternal(shipment);
+        return;
+    }
+
+    let qtyDiff = newQty - shipment.qty;
+
+    try {
+        await fetch(`/api/shipments/${shipment.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                date: shipment.date, branch: shipment.branch, item: shipment.item,
+                qty: newQty, selling_price: shipment.sellingPrice, purchase_price: shipment.purchasePrice,
+                unique_key: uniqueKey, bill_number: shipment.billNumber || ''
+            })
+        });
+
+        let branchItem = (branchInventory[shipment.branch] || []).find(i => i.distributionId === uniqueKey);
+        if (branchItem) {
+            await fetch(`/api/branch-inventory/${branchItem.id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ quantity: newQty, original_quantity: newQty })
+            });
+        }
+
+        if (qtyDiff !== 0) {
+            await fetch('/api/main-client-distributed', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ main_client: currentUser.username, item_name: shipment.item, distributed_quantity: qtyDiff })
+            });
+        }
+
+        closeModal();
+        await refreshDataFromServer();
+        await autoUpdateEditingInvoiceIfNeeded();
+        await loadBillingData();
+        alert(window._editingInvoiceNumber ? '✅ Quantity updated and invoice refreshed!' : '✅ Quantity updated successfully!');
+    } catch (err) { alert('Failed to update item: ' + err.message); }
+};
+
+async function deleteShipmentItemInternal(shipment) {
+    try {
+        await fetch(`/api/shipments/${shipment.id}`, { method: 'DELETE' });
+        await fetch(`/api/shipment-payment/${shipment.uniqueKey}`, { method: 'DELETE' });
+
+        let branchItem = (branchInventory[shipment.branch] || []).find(i => i.distributionId === shipment.uniqueKey);
+        if (branchItem) {
+            await fetch(`/api/branch-inventory/item/${branchItem.id}`, { method: 'DELETE' });
+        }
+
+        await fetch('/api/main-client-distributed', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ main_client: currentUser.username, item_name: shipment.item, distributed_quantity: -shipment.qty })
+        });
+
+        closeModal();
+        await refreshDataFromServer();
+        await autoUpdateEditingInvoiceIfNeeded();
+        await loadBillingData();
+        alert('✅ Item removed from bill successfully!');
+    } catch (err) { alert('Failed to remove item: ' + err.message); }
+}
+
+window.deleteShipmentItem = async function (uniqueKey) {
+    let shipment = mainClientToBranchShipments.find(s => s.uniqueKey === uniqueKey);
+    if (!shipment) return;
+    if (!isShipmentEditable(shipment)) { alert('This item can no longer be deleted (paid, sold, or returned).'); return; }
+    if (!confirm(`Delete ${shipment.qty} x ${shipment.item} from this bill? This cannot be undone.`)) return;
+    await deleteShipmentItemInternal(shipment);
+};
 
 window.loadBillingData = async function () {
     let branch = document.getElementById('billingBranchSelect').value;
@@ -539,7 +654,7 @@ window.loadBillingData = async function () {
         ${filteredShipments.length === 0
             ? `<div class="empty-state"><i class="fas fa-box-open"></i><h3>No Shipments Found</h3><p>No items match this filter.</p></div>`
             : `<div class="table-wrapper"><table class="report-table">
-                <thead><tr><th>Item Name</th><th>Currency</th><th>Date</th><th>Quantity</th><th>Selling Price/Unit</th><th>Total Price</th></tr></thead>
+                                <thead><tr><th>Item Name</th><th>Currency</th><th>Date</th><th>Quantity</th><th>Selling Price/Unit</th><th>Total Price</th><th>Action</th></tr></thead>
                 <tbody>${filteredShipments.sort((a,b) => new Date(b.date)-new Date(a.date)).map(s => {
                     let discount = getItemDiscount(s.item);
                     let isFullyPaid = getShipmentStatus(s) === 'paid';
@@ -547,7 +662,12 @@ window.loadBillingData = async function () {
                     let priceDisplay = (discount && !isFullyPaid)
                         ? `<span style="text-decoration:line-through;color:#94a3b8;font-size:12px;">${fmt(discount.originalPrice)}</span><br><span style="color:#22c55e;font-weight:600;">${fmt(discount.newPrice)}</span>`
                         : fmt(s.sellingPrice);
-                    return `<tr><td>${escapeHtml(s.item)}</td><td><span class="badge ${s.currency==='USD'?'badge-mainclient':'badge-active'}">${s.currency}</span></td><td>${s.date}</td><td>${s.qty}</td><td>${priceDisplay}</td><td class="total-value">${fmt(getShipmentCorrectTotal(s))}</td></tr>`;
+                    let editable = isShipmentEditable(s);
+                    let actionHtml = editable
+                        ? `<button class="btn btn-edit" onclick="showEditShipmentModal('${s.uniqueKey}')"><i class="fas fa-edit"></i></button>
+                           <button class="btn btn-delete" onclick="deleteShipmentItem('${s.uniqueKey}')"><i class="fas fa-trash"></i></button>`
+                        : `<span class="badge badge-active" style="font-size:11px;">Locked</span>`;
+                    return `<tr><td>${escapeHtml(s.item)}</td><td><span class="badge ${s.currency==='USD'?'badge-mainclient':'badge-active'}">${s.currency}</span></td><td>${s.date}</td><td>${s.qty}</td><td>${priceDisplay}</td><td class="total-value">${fmt(getShipmentCorrectTotal(s))}</td><td>${actionHtml}</td></tr>`;
                 }).join('')}</tbody>
                </table></div>`
         }
@@ -714,6 +834,7 @@ function showInvoicePrint(invoiceNumber, mainClient, branch, date, shipments, to
 
 // ==================== MAIN CLIENT INVOICES ====================
 async function renderMainClientInvoices() {
+    await refreshDataFromServer();
     let branches = getBranchUsers();
     try {
         const response = await fetch(`/api/invoices/mainclient/${currentUser.username}`);
@@ -751,7 +872,9 @@ function renderMainClientInvoicesList(invoicesList) {
                 <td><strong>${escapeHtml(inv.number)}</strong></td><td>${escapeHtml(inv.branch)}</td><td>${inv.date || '-'}</td>
                 <td>${inv.total_items || 0}</td><td class="total-value">${formatMoney(inv.total_value || 0)}</td>
                 <td>${inv.created_at ? new Date(inv.created_at).toLocaleString() : '-'}</td>
-                <td><button class="btn btn-edit" onclick="viewMainClientInvoice('${inv.number}')"><i class="fas fa-eye"></i> View</button></td>
+                <td>
+                    <button class="btn btn-edit" onclick="viewMainClientInvoice('${inv.number}')"><i class="fas fa-eye"></i> View</button>
+                    ${isBillCurrentlyEditable(inv.branch, inv.date) ? `<button class="btn btn-warning" onclick="editMainClientInvoiceBill('${inv.branch}', '${inv.date.replace(/'/g,"\\'")}', '${inv.number}')"><i class="fas fa-edit"></i> Edit</button>` : ''}                </td>            
             </tr>`).join('')}
         </tbody>
     </table></div>`;
@@ -836,6 +959,97 @@ window.viewMainClientInvoice = async function (invoiceNumber) {
     } catch (err) { alert('Failed to load invoice details'); }
 };
 
+async function autoUpdateEditingInvoiceIfNeeded() {
+    let invoiceNumber = window._editingInvoiceNumber;
+    if (!invoiceNumber) return;
+
+    let ctx = window._billingFilterContext;
+    if (!ctx || !ctx.branch) return;
+
+    let shipments;
+    if (ctx.type === 'billNumber') {
+        shipments = mainClientToBranchShipments.filter(s => s.branch === ctx.branch && s.billNumber === ctx.billNumber);
+    } else {
+        shipments = mainClientToBranchShipments.filter(s => {
+            let d = formatDateForCompare(s.date);
+            if (s.branch !== ctx.branch) return false;
+            if (ctx.startDate === ctx.endDate) return d === ctx.startDate;
+            return d >= ctx.startDate && d <= ctx.endDate;
+        });
+    }
+    shipments = shipments.map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+
+    let afgShip = shipments.filter(s => s.currency !== 'USD');
+    let totalItems = shipments.reduce((sum, s) => sum + s.qty, 0);
+    let totalValueAFG = afgShip.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
+
+    let allTimeShipments = mainClientToBranchShipments.filter(s => s.branch === ctx.branch).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+    let allTimeAfg = allTimeShipments.filter(s => s.currency !== 'USD');
+    let allTimeTotalItems = allTimeShipments.reduce((sum, s) => sum + s.qty, 0);
+    let allTimeTotalValueAFG = allTimeAfg.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
+    let allTimePaidAFG = allTimeAfg.reduce((sum, s) => sum + getShipmentPaidAmount(s), 0);
+    let allTimeUnpaidAFG = allTimeTotalValueAFG - allTimePaidAFG;
+
+    try {
+        await fetch(`/api/invoices/by-number/${invoiceNumber}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                total_items: totalItems, total_value: totalValueAFG,
+                all_time_total_items: allTimeTotalItems, all_time_total_value: allTimeTotalValueAFG,
+                all_time_paid: allTimePaidAFG, all_time_unpaid: allTimeUnpaidAFG,
+                items: shipments
+            })
+        });
+    } catch (err) { console.log('Error auto-updating invoice:', err); }
+}
+
+function getShipmentsForBillLabel(branch, dateLabel) {
+    if (dateLabel && dateLabel.startsWith('Bill Number: ')) {
+        let billNumber = dateLabel.replace('Bill Number: ', '');
+        return mainClientToBranchShipments.filter(s => s.branch === branch && s.billNumber === billNumber);
+    } else if (dateLabel && dateLabel.includes(' to ')) {
+        let [start, end] = dateLabel.split(' to ');
+        return mainClientToBranchShipments.filter(s => {
+            let d = formatDateForCompare(s.date);
+            return s.branch === branch && d >= start && d <= end;
+        });
+    } else if (dateLabel) {
+        return mainClientToBranchShipments.filter(s => s.branch === branch && formatDateForCompare(s.date) === dateLabel);
+    }
+    return [];
+}
+
+function isBillCurrentlyEditable(branch, dateLabel) {
+    let shipments = getShipmentsForBillLabel(branch, dateLabel);
+    if (shipments.length === 0) return false;
+    return shipments.every(s => isShipmentEditable(s));
+}
+
+window.editMainClientInvoiceBill = async function (branch, dateLabel, invoiceNumber) {
+    window._editingInvoiceNumber = invoiceNumber || null;
+    await renderMainClientBilling();
+    document.getElementById('billingBranchSelect').value = branch;
+    updateBillingBillNumberOptions();
+
+    if (dateLabel.startsWith('Bill Number: ')) {
+        let billNumber = dateLabel.replace('Bill Number: ', '');
+        let sel = document.getElementById('billingBillNumberSelect');
+        if (sel) sel.value = billNumber;
+        toggleBillingTimePeriodDisabled();
+    } else if (dateLabel.includes(' to ')) {
+        let [start, end] = dateLabel.split(' to ');
+        document.getElementById('billingTimePeriod').value = 'custom';
+        toggleBillingDateInput();
+        document.getElementById('billingStartDate').value = start;
+        document.getElementById('billingEndDate').value = end;
+    } else {
+        document.getElementById('billingTimePeriod').value = 'date';
+        toggleBillingDateInput();
+        document.getElementById('billingDate').value = dateLabel;
+    }
+    await loadBillingData();
+};
+
 // ==================== MAIN CLIENT REPORT ====================
 async function renderMainClientReport() {
     let branches = getBranchUsers();
@@ -910,7 +1124,13 @@ async function renderMainClientReport() {
         let totalItemsValue = invInCur.reduce((sum, item) => sum + calculateItemSaleValue(item), 0);
 
         let shipmentsInCur = mainClientToBranchShipments.filter(s => getItemCurrency(s.item) === currency);
-        let paymentFromBranches = shipmentsInCur.reduce((sum, s) => sum + getShipmentPaidAmount(s), 0);
+        let paymentFromBranchesConfirmed = 0, paymentFromBranchesPartial = 0;
+        shipmentsInCur.forEach(s => {
+            let paid = getShipmentPaidAmount(s);
+            let displayStatus = getShipmentDisplayStatus(s);
+            if (displayStatus === 'paid') paymentFromBranchesConfirmed += paid;
+            else if (displayStatus === 'partial') paymentFromBranchesPartial += paid;
+        });
 
         return `
         <div class="summary-cards-grid">
@@ -958,8 +1178,13 @@ async function renderMainClientReport() {
             </div>
             <div class="summary-card-large" style="background:linear-gradient(145deg,#22c55e,#16a34a);">
                 <h4 style="color:white;"><i class="fas fa-store"></i> Payment from All Branches</h4>
-                <div class="amount" style="color:white;font-size:22px;">${fmt(paymentFromBranches)}</div>
-                <div class="subtitle" style="color:rgba(255,255,255,0.8);">Total paid by branches</div>
+                <div class="amount" style="color:white;font-size:22px;">${fmt(paymentFromBranchesConfirmed)}</div>
+                <div class="subtitle" style="color:rgba(255,255,255,0.8);">Confirmed by Admin (Paid)</div>
+            </div>
+            <div class="summary-card-large" style="background:linear-gradient(145deg,#f59e0b,#d97706);">
+                <h4 style="color:white;"><i class="fas fa-hourglass-half"></i> Partial Amount</h4>
+                <div class="amount" style="color:white;font-size:22px;">${fmt(paymentFromBranchesPartial)}</div>
+                <div class="subtitle" style="color:rgba(255,255,255,0.8);">Received, awaiting Admin confirmation</div>
             </div>
         </div>`;
     }
@@ -1075,7 +1300,8 @@ async function displayBranchReport(branch, startDate, endDate, period) {
         let totalPrice = getShipmentCorrectTotal(s);
         let paidAmount = Math.min((s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? shipmentPayments[s.uniqueKey] : 0, totalPrice);
         let reminder = totalPrice - paidAmount;
-        return { ...s, date: formatDateForCompare(s.date), reminder, paidAmount, status: paidAmount >= totalPrice ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid'), totalPrice, currency };
+        let status = getShipmentDisplayStatus(s);
+        return { ...s, date: formatDateForCompare(s.date), reminder, paidAmount, status, totalPrice, currency };
     });
 
     let afgShip = filteredShipments.filter(s => s.currency !== 'USD');

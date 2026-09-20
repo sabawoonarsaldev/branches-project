@@ -49,9 +49,8 @@ function renderBranchInventoryRows(items) {
         let shipmentDate = item.shipmentDate || item.distributionDate || getTodayDate();
 
         let originalShipment = mainClientToBranchShipments.find(s => s.branch === branch && s.uniqueKey === uniqueId);
-        let paymentStatus = originalShipment ? getShipmentStatus(originalShipment) : 'unpaid';
+        let paymentStatus = originalShipment ? getShipmentDisplayStatus(originalShipment) : 'unpaid';
         let isPaid = paymentStatus === 'paid';
-
         let storageKey = `branch_received_${branch}_${uniqueId}`;
         let isMarkedReceived = localStorage.getItem(storageKey) === 'true';
         if (!isMarkedReceived && originalShipment) {

@@ -196,12 +196,11 @@ window.loadMainClientShipments = async function () {
             ...s,
             reminder: getShipmentReminder(s),
             paidAmount: getShipmentPaidAmount(s),
-            status: getShipmentStatus(s),
+            status: getShipmentDisplayStatus(s),
             totalPrice: getShipmentCorrectTotal(s)
         }));
     await displayMainClientShipments(shipments);
 };
-
 
 window.filterMainClientShipments = async function () { await loadMainClientShipments(); };
 

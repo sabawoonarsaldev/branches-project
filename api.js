@@ -255,3 +255,13 @@ async function deleteDiscount(itemName) {
     });
     return await response.json();
 }
+
+async function deleteBranchInventoryItem(id) {
+    const response = await fetch(`${API_URL}/branch-inventory/item/${id}`, { method: 'DELETE' });
+    return await response.json();
+}
+
+async function confirmShipmentPaymentByAdmin(shipmentId) {
+    const response = await fetch(`${API_URL}/shipment-payment/${shipmentId}/confirm`, { method: 'PUT' });
+    return await response.json();
+}

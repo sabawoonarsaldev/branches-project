@@ -85,14 +85,13 @@ function showSection(section) {
         else if (section === 'totalAmount') renderTotalAmount();
         else if (section === 'adminHistory') renderAdminHistory();
         else if (section === 'adminPaymentsToAdmin') renderAdminPaymentsToAdmin();
-    } else if (currentUser.role === 'mainclient') {
+        else if (section === 'allPayments') renderAllPaymentsPage();    } else if (currentUser.role === 'mainclient') {
         if (section === 'mainClientInventory') renderMainClientInventory();
         else if (section === 'mainClientFinance') renderMainClientFinance();
         else if (section === 'mainClientExpenses') renderMainClientExpenses();
         else if (section === 'mainClientDistribute') renderMainClientDistribute();
         else if (section === 'mainClientPayments') renderMainClientPayments();
-        else if (section === 'mainClientBilling') renderMainClientBilling();
-        else if (section === 'mainClientInvoices') renderMainClientInvoices();
+        else if (section === 'mainClientBilling') { window._editingInvoiceNumber = null; renderMainClientBilling(); }        else if (section === 'mainClientInvoices') renderMainClientInvoices();
         else if (section === 'mainClientReport') renderMainClientReport();
         else if (section === 'mainClientUsers') renderMainClientUsers();
         else if (section === 'mainClientShipments') renderMainClientShipments();
