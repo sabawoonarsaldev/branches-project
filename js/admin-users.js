@@ -413,7 +413,10 @@ function renderAdminPayments() {
                     </select>
                 </div>
                 <div class="form-group" style="flex:1;"><label><i class="fas fa-code-branch"></i> Select Branch</label>
-                    <select id="adminPaymentBranchSelect" disabled><option value="">-- First select a main client --</option></select>
+                    <select id="adminPaymentBranchSelect" disabled onchange="updateAdminPaymentBillNumberOptions()"><option value="">-- First select a main client --</option></select>
+                </div>
+                <div class="form-group" style="flex:1;" id="adminPaymentBillNumberGroup"><label><i class="fas fa-receipt"></i> Bill Number</label>
+                    <select id="adminPaymentBillNumberSelect"><option value="">-- All Bills --</option></select>
                 </div>
             </div>
             <div class="filter-row" style="grid-template-columns:1fr 1fr 1fr;">
@@ -439,12 +442,23 @@ function renderAdminPayments() {
         <div id="adminPaymentsContainer" style="display:none;"></div>`;
     document.getElementById('content').innerHTML = html;
 }
-
 window.updateAdminPaymentBranchList = function () {
     let branchSelect = document.getElementById('adminPaymentBranchSelect');
     let branches = getBranchUsers();
     branchSelect.innerHTML = '<option value="">-- All Branches --</option>' + branches.map(b => `<option value="${b.username}">${b.username} Branch</option>`).join('');
     branchSelect.disabled = false;
+    updateAdminPaymentBillNumberOptions();
+};
+
+window.updateAdminPaymentBillNumberOptions = function() {
+    let branch = document.getElementById('adminPaymentBranchSelect')?.value;
+    let select = document.getElementById('adminPaymentBillNumberSelect');
+    if (!select) return;
+    let list = branch
+        ? mainClientToBranchShipments.filter(s => s.branch === branch)
+        : mainClientToBranchShipments;
+    let billNumbers = [...new Set(list.filter(s => s.billNumber && s.billNumber.trim() !== '').map(s => s.billNumber))];
+    select.innerHTML = `<option value="">-- All Bills --</option>` + billNumbers.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
 };
 
 window.toggleAdminPaymentCustomDate = function () {
@@ -569,10 +583,10 @@ window.loadAllPaymentsData = function() {
     document.getElementById('allPaymentsResultContainer').innerHTML = html;
 };
 
-
 window.loadAdminBranchPayments = async function() {
     let branch = document.getElementById('adminPaymentBranchSelect')?.value;
     let period = document.getElementById('adminPaymentTimePeriod')?.value || 'all';
+    let billNumber = document.getElementById('adminPaymentBillNumberSelect')?.value || '';
     
     await refreshDataFromServer();
 
@@ -580,7 +594,9 @@ window.loadAdminBranchPayments = async function() {
         ? mainClientToBranchShipments.filter(s => s.branch === branch)
         : mainClientToBranchShipments;
 
-    if (period !== 'all') {
+    if (billNumber) {
+        shipments = shipments.filter(s => s.billNumber === billNumber);
+    } else if (period !== 'all') {
         let now = new Date();
         let startDate, endDate = new Date();
         endDate.setHours(23, 59, 59, 999);
@@ -618,12 +634,13 @@ window.loadAdminBranchPayments = async function() {
     let usdShipments = processedShipments.filter(s => s.currency === 'USD');
 
     let totalValueAFG = afgShipments.reduce((sum, s) => sum + s.totalPrice, 0);
-    let totalPaidAFG = afgShipments.reduce((sum, s) => sum + s.paidAmount, 0);
+    let totalPaidAFG = afgShipments.filter(s=>s.status==='paid').reduce((sum, s) => sum + s.paidAmount, 0);
+    let totalPartialAFG = afgShipments.filter(s=>s.status==='partial').reduce((sum, s) => sum + s.paidAmount, 0);
     let totalUnpaidAFG = afgShipments.reduce((sum, s) => sum + s.unpaidAmount, 0);
     let totalValueUSD = usdShipments.reduce((sum, s) => sum + s.totalPrice, 0);
-    let totalPaidUSD = usdShipments.reduce((sum, s) => sum + s.paidAmount, 0);
+    let totalPaidUSD = usdShipments.filter(s=>s.status==='paid').reduce((sum, s) => sum + s.paidAmount, 0);
+    let totalPartialUSD = usdShipments.filter(s=>s.status==='partial').reduce((sum, s) => sum + s.paidAmount, 0);
     let totalUnpaidUSD = usdShipments.reduce((sum, s) => sum + s.unpaidAmount, 0);
-
     let afgAwaiting = afgShipments.filter(s => s.awaitingConfirm);
     let usdAwaiting = usdShipments.filter(s => s.awaitingConfirm);
     window._adminAwaitingKeys = {
@@ -640,6 +657,7 @@ window.loadAdminBranchPayments = async function() {
             <div class="summary-stats">
                 <div class="summary-item"><div class="label">Total Value</div><div class="value">${formatMoney(totalValueAFG)}</div></div>
                 <div class="summary-item"><div class="label">Total Paid</div><div class="value" style="color:#22c55e;">${formatMoney(totalPaidAFG)}</div></div>
+                <div class="summary-item"><div class="label">Total Partial</div><div class="value" style="color:#f59e0b;">${formatMoney(totalPartialAFG)}</div></div>
                 <div class="summary-item"><div class="label">Total Unpaid</div><div class="value" style="color:#ef4444;">${formatMoney(totalUnpaidAFG)}</div></div>
             </div>
         </div>
@@ -652,6 +670,7 @@ window.loadAdminBranchPayments = async function() {
             <div class="summary-stats">
                 <div class="summary-item"><div class="label">Total Value</div><div class="value">${formatByCurrency(totalValueUSD,'USD')}</div></div>
                 <div class="summary-item"><div class="label">Total Paid</div><div class="value" style="color:#22c55e;">${formatByCurrency(totalPaidUSD,'USD')}</div></div>
+                <div class="summary-item"><div class="label">Total Partial</div><div class="value" style="color:#f59e0b;">${formatByCurrency(totalPartialUSD,'USD')}</div></div>
                 <div class="summary-item"><div class="label">Total Unpaid</div><div class="value" style="color:#ef4444;">${formatByCurrency(totalUnpaidUSD,'USD')}</div></div>
             </div>
         </div>
@@ -661,14 +680,14 @@ window.loadAdminBranchPayments = async function() {
         ${processedShipments.length === 0 
             ? `<div class="empty-state"><i class="fas fa-box"></i><h3>No Payments Found</h3></div>`
             : `<div class="table-wrapper"><table>
-                <thead><tr><th>Distributed</th><th>Branch</th><th>Item</th><th>Currency</th><th>Qty</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th><th>Main Client Paid</th><th>Admin Confirmed</th><th>Action</th></tr></thead>
+                               <thead><tr><th>Distributed</th><th>Bill Number</th><th>Branch</th><th>Item</th><th>Currency</th><th>Qty</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th><th>Main Client Paid</th><th>Admin Confirmed</th><th>Action</th></tr></thead>
                 <tbody>${processedShipments.sort((a,b) => new Date(b.date)-new Date(a.date)).map(s => {
                     let sc = s.status === 'paid' ? 'badge-paid' : (s.status === 'partial' ? 'badge-partial' : 'badge-unpaid');
                     let fmt = (v) => formatByCurrency(v, s.currency);
                     let mcPaidDate = s.uniqueKey ? (shipmentMainClientPaidDate[s.uniqueKey] || '-') : '-';
                     let confirmedDate = s.uniqueKey ? (shipmentConfirmedDate[s.uniqueKey] || '-') : '-';
                     return `<tr>
-                        <td>${s.date}</td><td>${s.branch}</td><td>${s.item}</td>
+                        <td>${s.date}</td><td>${s.billNumber || '-'}</td><td>${s.branch}</td><td>${s.item}</td>
                         <td><span class="badge ${s.currency==='USD'?'badge-mainclient':'badge-active'}">${s.currency}</span></td>
                         <td>${s.qty}</td>
                         <td class="total-value">${fmt(s.totalPrice)}</td>
