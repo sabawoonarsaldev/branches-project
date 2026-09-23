@@ -560,6 +560,7 @@ window.loadAllPaymentsData = function() {
             else if (status === 'partial') totalPartialValue += paid;
             totalUnpaidValue += unpaid;
         });
+        let totalRemainderInMainClient = totalSale - totalPaidValue;
 
         let cardBg = isUSD ? 'style="background:linear-gradient(145deg,#3b82f6,#2563eb);color:white;"' : '';
         let hStyle = isUSD ? 'style="color:white;"' : '';
@@ -571,6 +572,7 @@ window.loadAllPaymentsData = function() {
             <div class="report-card" ${cardBg}><h3 ${hStyle}><i class="fas fa-tags"></i> Total Selling Price</h3><div class="report-number" ${hStyle}>${fmt(totalSale)}</div></div>
             <div class="report-card" ${cardBg}><h3 ${hStyle}><i class="fas fa-file-invoice"></i> Total Expenses</h3><div class="report-number" ${hStyle}>${fmt(totalExpenses)}</div><div class="report-label" ${hStyle}>Admin + Main Client only</div></div>
             <div class="report-card" ${cardBg}><h3 ${hStyle}><i class="fas fa-wallet"></i> Total Profit</h3><div class="report-number ${!isUSD ? (totalProfit>=0?'profit-text':'loss-text') : ''}" ${hStyle}>${fmt(totalProfit)}</div></div>
+            <div class="report-card" style="background:linear-gradient(145deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;"><i class="fas fa-hand-holding-usd"></i> Total Remainder in Main Client</h3><div class="report-number" style="color:white;">${fmt(totalRemainderInMainClient)}</div><div class="report-label" style="color:rgba(255,255,255,0.8);">Selling Price - Confirmed Paid</div></div>
         </div>
         <div class="report-grid" style="margin-top:20px;">
             <div class="report-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;"><h3 style="color:white;">Total Paid Value</h3><div class="report-number" style="color:white;">${fmt(totalPaidValue)}</div></div>

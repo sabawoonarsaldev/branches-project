@@ -461,7 +461,7 @@ async function renderMainClientDistribute() {
                     </select>
                 </div>
                 <div class="form-group"><label><i class="fas fa-receipt"></i> Bill Number</label>
-                    <input type="text" id="distBillNumber" class="form-control" placeholder="Enter bill number (name or number)">
+                    <input type="text" id="distBillNumber" class="form-control" value="${generateUniqueBillNumber()}">
                 </div>
                 <div class="form-group"><label><i class="fas fa-box"></i> Select Item</label>
                     <select id="distItem" class="form-control" onchange="updateDistItemDetails()">
@@ -559,6 +559,19 @@ window.validateQuantity = function () {
     }
 };
 
+
+function generateUniqueBillNumber() {
+    let existingNumbers = new Set(mainClientToBranchShipments.map(s => s.billNumber).filter(Boolean));
+    let attempt;
+    do {
+        let datePart = getTodayDate().replace(/-/g, '');
+        let randomPart = Math.floor(1000 + Math.random() * 9000);
+        attempt = `BILL-${datePart}-${randomPart}`;
+    } while (existingNumbers.has(attempt));
+    return attempt;
+}
+
+
 window.distributeToBranch = async function () {
     let btn = document.getElementById('distributeBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Please wait...'; }
@@ -620,8 +633,8 @@ window.showMultipleDistributeForm = async function () {
         <div class="modal-header"><h3><i class="fas fa-layer-group"></i> Multiple Distribute</h3><button onclick="closeModal()">&times;</button></div>
         <div class="form-group"><label><i class="fas fa-code-branch"></i> Select Branch</label>
             <select id="multiDistBranch" class="form-control"><option value="">-- Choose a branch --</option>${branchOptions}</select>
-        <div class="form-group"><label><i class="fas fa-receipt"></i> Bill Number</label>
-            <input type="text" id="multiDistBillNumber" class="form-control" placeholder="Enter bill number (applies to all selected items)">
+                <div class="form-group"><label><i class="fas fa-receipt"></i> Bill Number</label>
+            <input type="text" id="multiDistBillNumber" class="form-control" value="${generateUniqueBillNumber()}">
         </div>
         </div>
         <div class="form-group"><label><i class="fas fa-box"></i> Select Items</label>
