@@ -56,6 +56,7 @@ let billPayments = {};
 let branchBills = {};
 let shipmentPayments = {};
 let shipmentAdminConfirmed = {};
+let shipmentAdminConfirmedAmount = {};
 let shipmentMainClientPaidDate = {};
 let shipmentConfirmedDate = {};
 let currentUser = null;
@@ -294,9 +295,11 @@ async function refreshDataFromServer() {
         let freshShipmentMainClientPaidDate = {};
         let freshShipmentConfirmedDate = {};
 
+        let freshShipmentAdminConfirmedAmount = {};
         function absorbPaymentRow(payment) {
             freshShipmentPayments[payment.shipment_id] = parseFloat(payment.paid_amount) || 0;
             freshShipmentAdminConfirmed[payment.shipment_id] = payment.confirmed_by_admin === 1 || payment.confirmed_by_admin === true;
+            freshShipmentAdminConfirmedAmount[payment.shipment_id] = parseFloat(payment.admin_confirmed_amount) || 0;
             freshShipmentMainClientPaidDate[payment.shipment_id] = payment.main_client_paid_date ? String(payment.main_client_paid_date).split('T')[0] : null;
             freshShipmentConfirmedDate[payment.shipment_id] = payment.confirmed_date ? String(payment.confirmed_date).split('T')[0] : null;
         }
@@ -324,9 +327,9 @@ async function refreshDataFromServer() {
         } catch (err) { console.log('Error loading shipment payments:', err); }
         shipmentPayments = freshShipmentPayments;
         shipmentAdminConfirmed = freshShipmentAdminConfirmed;
+        shipmentAdminConfirmedAmount = freshShipmentAdminConfirmedAmount;
         shipmentMainClientPaidDate = freshShipmentMainClientPaidDate;
         shipmentConfirmedDate = freshShipmentConfirmedDate;
-
         // Load main client distributed
         mainClientDistributed = {};
         try {
@@ -764,18 +767,35 @@ function getShipmentStatus(shipment) {
     if (paidAmount > 0) return 'partial';
     return 'unpaid';
 }
+function getShipmentAdminConfirmedAmount(shipment) {
+    if (!shipment.uniqueKey) return 0;
+    return Math.min(shipmentAdminConfirmedAmount[shipment.uniqueKey] || 0, getShipmentPaidAmount(shipment));
+}
+
+function getShipmentUnconfirmedPaidAmount(shipment) {
+    let paid = getShipmentPaidAmount(shipment);
+    let confirmed = getShipmentAdminConfirmedAmount(shipment);
+    return Math.max(0, paid - confirmed);
+}
+
+function getShipmentAmountBreakdown(shipment) {
+    let total = getShipmentCorrectTotal(shipment);
+    let paid = getShipmentPaidAmount(shipment);
+    let confirmed = getShipmentAdminConfirmedAmount(shipment);
+    let partial = Math.max(0, paid - confirmed);
+    let unpaid = Math.max(0, total - paid);
+    return { total, paidConfirmed: confirmed, partial, unpaid };
+}
 
 function getShipmentDisplayStatus(shipment) {
-    let amountStatus = getShipmentStatus(shipment);
-    if (amountStatus === 'paid') {
-        let confirmed = shipment.uniqueKey && shipmentAdminConfirmed[shipment.uniqueKey] === true;
-        return confirmed ? 'paid' : 'partial';
-    }
-    return amountStatus;
+    let b = getShipmentAmountBreakdown(shipment);
+    if (b.unpaid <= 0.01 && b.partial <= 0.01 && b.paidConfirmed > 0.01) return 'paid';
+    if (b.paidConfirmed > 0.01 || b.partial > 0.01) return 'partial';
+    return 'unpaid';
 }
 
 function isShipmentAwaitingAdminConfirm(shipment) {
-    return getShipmentStatus(shipment) === 'paid' && !(shipment.uniqueKey && shipmentAdminConfirmed[shipment.uniqueKey]);
+    return getShipmentUnconfirmedPaidAmount(shipment) > 0.01;
 }
 
 function updateShipmentReminder(shipment, paymentAmount) {

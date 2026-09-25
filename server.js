@@ -47,7 +47,7 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// Local development
+// // Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
@@ -141,6 +141,12 @@ pool.getConnection()
             console.log('shipment_payments.main_client_paid_date column ready');
         } catch (err) {
             if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding main_client_paid_date:', err.message);
+        }
+                try {
+            await pool.query(`ALTER TABLE shipment_payments ADD COLUMN admin_confirmed_amount DECIMAL(12,2) NOT NULL DEFAULT 0`);
+            console.log('shipment_payments.admin_confirmed_amount column ready');
+        } catch (err) {
+            if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding admin_confirmed_amount:', err.message);
         }
     })
     .catch(err => {
@@ -729,7 +735,7 @@ app.post('/api/shipment-received', async (req, res) => {
 app.get('/api/shipment-payments/all', async (req, res) => {
     try {
         const [rows] = await pool.execute(
-            `SELECT sp.shipment_id, sp.paid_amount, sp.confirmed_by_admin, sp.confirmed_date, sp.main_client_paid_date, s.branch, s.item, s.qty, s.selling_price, s.date
+            `SELECT sp.shipment_id, sp.paid_amount, sp.confirmed_by_admin, sp.confirmed_date, sp.main_client_paid_date, sp.admin_confirmed_amount, s.branch, s.item, s.qty, s.selling_price, s.date
              FROM shipment_payments sp
              JOIN shipments_to_branches s ON sp.shipment_id = s.unique_key
              ORDER BY s.date DESC`
@@ -741,12 +747,11 @@ app.get('/api/shipment-payments/all', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
 app.get('/api/shipment-payments/mainclient/:mainClient', async (req, res) => {
     const { mainClient } = req.params;
     try {
         const [rows] = await pool.execute(
-            `SELECT sp.shipment_id, sp.paid_amount, sp.confirmed_by_admin, sp.confirmed_date, sp.main_client_paid_date, s.branch, s.item, s.qty, s.selling_price, s.date
+            `SELECT sp.shipment_id, sp.paid_amount, sp.confirmed_by_admin, sp.confirmed_date, sp.main_client_paid_date, sp.admin_confirmed_amount, s.branch, s.item, s.qty, s.selling_price, s.date
              FROM shipment_payments sp
              JOIN shipments_to_branches s ON sp.shipment_id = s.unique_key
              ORDER BY s.date DESC`
@@ -762,7 +767,7 @@ app.get('/api/shipment-payments/branch/:branch', async (req, res) => {
     const { branch } = req.params;
     try {
         const [rows] = await pool.execute(
-            `SELECT sp.shipment_id, sp.paid_amount, sp.confirmed_by_admin, sp.confirmed_date, sp.main_client_paid_date
+            `SELECT sp.shipment_id, sp.paid_amount, sp.confirmed_by_admin, sp.confirmed_date, sp.main_client_paid_date, sp.admin_confirmed_amount
              FROM shipment_payments sp
              JOIN shipments_to_branches s ON sp.shipment_id = s.unique_key
              WHERE s.branch = ?`,
@@ -804,13 +809,25 @@ app.post('/api/shipment-payment', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
 app.put('/api/shipment-payment/:shipmentId/confirm', async (req, res) => {
     const { shipmentId } = req.params;
+    const { amount } = req.body;
     try {
+        const [existing] = await pool.execute('SELECT * FROM shipment_payments WHERE shipment_id = ?', [shipmentId]);
+        if (existing.length === 0) return res.status(404).json({ error: 'Payment record not found' });
+
+        const row = existing[0];
+        const paidAmount = parseFloat(row.paid_amount) || 0;
+        const currentConfirmed = parseFloat(row.admin_confirmed_amount) || 0;
+        let confirmAmount = amount !== undefined ? parseFloat(amount) : (paidAmount - currentConfirmed);
+        if (isNaN(confirmAmount) || confirmAmount < 0) confirmAmount = 0;
+
+        let newConfirmed = Math.min(paidAmount, currentConfirmed + confirmAmount);
+        let isFullyConfirmed = newConfirmed >= paidAmount - 0.01;
+
         await pool.execute(
-            `UPDATE shipment_payments SET confirmed_by_admin = 1, confirmed_date = CURRENT_DATE WHERE shipment_id = ?`,
-            [shipmentId]
+            `UPDATE shipment_payments SET admin_confirmed_amount = ?, confirmed_by_admin = ?, confirmed_date = CURRENT_DATE WHERE shipment_id = ?`,
+            [newConfirmed, isFullyConfirmed ? 1 : 0, shipmentId]
         );
         const [rows] = await pool.execute('SELECT * FROM shipment_payments WHERE shipment_id = ?', [shipmentId]);
         res.json(rows[0] || {});
