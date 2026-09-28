@@ -145,6 +145,18 @@ window.markMainClientItemAsPaidFromInventory = async function (itemName, quantit
 async function renderMainClientFinance() {
     let mainClient = currentUser.username;
     let clientExps = [];
+
+    let paidToAdminAFG = 0, paidToAdminUSD = 0;
+    try {
+        const paRes = await fetch(`/api/payments-to-admin/${mainClient}`);
+        if (paRes.ok) {
+            const paData = await paRes.json();
+            paidToAdminAFG = paData.filter(p => p.status === 'paid' && (p.currency||'AFG') !== 'USD').reduce((sum, p) => sum + parseFloat(p.amount), 0);
+            paidToAdminUSD = paData.filter(p => p.status === 'paid' && p.currency === 'USD').reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        }
+    } catch (err) { console.log('Error loading payments to admin:', err); }
+
+
     try {
         const response = await fetch(`/api/expenses/mainclient/${mainClient}`);
         if (response.ok) {
@@ -195,6 +207,10 @@ async function renderMainClientFinance() {
         let totalUnpaidToAdmin = itemsInCur.filter(i => i.paid !== true).reduce((sum, i) => sum + getCorrectItemValue(i), 0);
         let totalExpenses = expList.filter(e => (e.currency || 'AFG') === currency).reduce((sum, exp) => sum + exp.amount, 0);
         let netDistributedValue = totalOriginalItemsValue - totalRemainingItemsValue;
+        let confirmedShipmentsPaid = mainClientToBranchShipments
+            .filter(s => getItemCurrency(s.item) === currency)
+            .reduce((sum, s) => sum + getShipmentAmountBreakdown(s).paidConfirmed, 0);
+        let totalRemainderInMainClient = totalOriginalItemsValue - confirmedShipmentsPaid;
 
         let bg = currency === 'USD' ? 'style="background:linear-gradient(145deg,#3b82f6,#2563eb);color:white;"' : '';
         let bgOrange = currency === 'USD' ? 'style="background:linear-gradient(145deg,#f59e0b,#d97706);color:white;"' : 'style="background:linear-gradient(145deg,#f59e0b,#d97706);color:white;"';
@@ -211,12 +227,17 @@ async function renderMainClientFinance() {
             <div class="stat-card" ${bgGreen}><i class="fas fa-check-circle" style="color:white;"></i><h4 style="color:rgba(255,255,255,0.8);">Total Paid to Admin</h4><div class="stat-value" style="color:white;">${fmt(totalPaidToAdmin)}</div></div>
             <div class="stat-card" ${bgRed}><i class="fas fa-clock" style="color:white;"></i><h4 style="color:rgba(255,255,255,0.8);">Total Unpaid to Admin</h4><div class="stat-value" style="color:white;">${fmt(totalUnpaidToAdmin)}</div></div>
             <div class="stat-card ${currency!=='USD'?'expense-card':''}" ${currency==='USD'?'style="background:#64748b;color:white;"':''}><i class="fas fa-file-invoice" ${currency==='USD'?'style="color:white;"':''}></i><h4 ${currency==='USD'?'style="color:rgba(255,255,255,0.8);"':''}>Total Expenses</h4><div class="stat-value" ${currency==='USD'?'style="color:white;"':''}>${fmt(totalExpenses)}</div></div>
-            <div class="stat-card" ${bgPurple}>
+                        <div class="stat-card" ${bgPurple}>
                 <i class="fas fa-share-alt" style="color:white;"></i>
                 <h4 style="color:rgba(255,255,255,0.8);">Total Distribute Value</h4>
                 <div class="stat-value" style="color:white;">${fmt(netDistributedValue)}</div>
                 <small style="color:rgba(255,255,255,0.7);">Original - Remaining</small>
             </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#0ea5e9,#0369a1);color:white;">
+                <i class="fas fa-hand-holding-usd" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Total Remainder in Main Client</h4>
+                <div class="stat-value" style="color:white;">${fmt(totalRemainderInMainClient)}</div>
+<small style="color:rgba(255,255,255,0.7);">Selling Price - Confirmed Paid</small>            </div>
         </div>
         <div class="payment-summary" style="margin-top:20px;">
             <h3><i class="fas fa-chart-pie"></i> Payment Summary</h3>
