@@ -327,6 +327,60 @@ window.deleteItem = async function (id) {
 
 // ==================== ADMIN FINANCE ====================
 
+function buildAdminMainClientCards(currency) {
+    let fmt = (v) => formatByCurrency(v, currency);
+    let owners = getMainClientUsers().map(u => u.username).join(', ') || '-';
+    let items = mainInventory.filter(i => (i.currency || 'AFG') === currency);
+
+    let remainingValue = 0, originalValue = 0;
+    items.forEach(item => {
+        let qty = parseInt(item.quantity) || 0;
+        let cleanName = item.name.trim().toLowerCase();
+        let distributed = 0;
+        Object.keys(mainClientDistributed).forEach(key => {
+            if (key.trim().toLowerCase() === cleanName) distributed += mainClientDistributed[key] || 0;
+        });
+        let remainingQty = Math.max(0, qty - distributed);
+        let currentPrice = parseFloat(item.sellingPrice) || 0;
+        remainingValue += currentPrice * remainingQty;
+
+        let discount = getItemDiscount(item.name);
+        let originalPrice = discount ? parseFloat(discount.originalPrice) : currentPrice;
+        let soldQty = salesHistory.filter(s => s.item === item.name).reduce((sum, s) => sum + (parseInt(s.qty) || 0), 0);
+        let actualSold = Math.min(soldQty, qty);
+        originalValue += (actualSold * originalPrice) + ((qty - actualSold) * currentPrice);
+    });
+    let distributeValue = originalValue - remainingValue;
+
+    let approvedReturns = branchReturns.filter(r => {
+        if (r.status !== 'approved' && r.status !== 'paid') return false;
+        let item = mainInventory.find(mi => mi.name === r.itemName);
+        return (item ? (item.currency || 'AFG') : 'AFG') === currency;
+    });
+    let returnedValue = approvedReturns.reduce((sum, r) => sum + ((r.pricePerUnit || 0) * (r.quantity || 0)), 0);
+
+    return `
+        <div class="stats-grid" style="margin-top:15px;">
+            <div class="stat-card" style="background:linear-gradient(145deg,#3b82f6,#2563eb);color:white;">
+                <i class="fas fa-chart-line" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Remaining Stock Value ${escapeHtml(owners)}</h4>
+                <div class="stat-value" style="color:white;">${fmt(remainingValue)}</div>
+            </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#8b5cf6,#7c3aed);color:white;">
+                <i class="fas fa-share-alt" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Total Distribute Value ${escapeHtml(owners)}</h4>
+                <div class="stat-value" style="color:white;">${fmt(distributeValue)}</div>
+                <small style="color:rgba(255,255,255,0.7);">Original - Remaining</small>
+            </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#f59e0b,#d97706);color:white;">
+                <i class="fas fa-undo-alt" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Returned Items Value ${escapeHtml(owners)}</h4>
+                <div class="stat-value" style="color:white;">${fmt(returnedValue)}</div>
+                <small style="color:rgba(255,255,255,0.7);">${approvedReturns.length} item(s) returned</small>
+            </div>
+        </div>`;
+}
+
 async function renderFinance() {
     try {
         const allSalesRes = await fetch('/api/sales/all');
@@ -359,6 +413,19 @@ async function renderFinance() {
     } catch (err) { console.log('Error loading branch expenses:', err); }
     recalcMainFinance();
 
+
+        try {
+        const returnsRes = await fetch('/api/returns/mainclient/admin');
+        if (returnsRes.ok) {
+            const returnsData = await returnsRes.json();
+            branchReturns = returnsData.map(r => ({
+                id: r.id, date: r.date ? r.date.split('T')[0] : getTodayDate(),
+                branch: r.branch, itemName: r.item_name,
+                quantity: parseInt(r.quantity), pricePerUnit: parseFloat(r.price_per_unit),
+                description: r.description, status: r.status
+            }));
+        }
+    } catch (err) { console.log('Error loading returns:', err); }
 let html = `
         <div class="header-actions">
             <h2 class="page-title">Financial Overview</h2>
@@ -371,6 +438,7 @@ let html = `
             <div class="stat-card profit-card"><i class="fas fa-chart-line"></i><h4>Total Profit</h4><div class="stat-value ${mainFinance.totalProfit >= 0 ? 'profit-text' : 'loss-text'}">${formatMoney(mainFinance.totalProfit)}</div><small>Sales - Purchases - Expenses</small></div>
             <div class="stat-card expense-card"><i class="fas fa-file-invoice"></i><h4>Total Expenses</h4><div class="stat-value">${formatMoney(mainFinance.totalExpenses)}</div><small>Admin + Main Client only</small></div>
         </div>
+        ${buildAdminMainClientCards('AFG')}
 
         <h3 style="margin:30px 0 15px;"><i class="fas fa-dollar-sign"></i> US Dollar (USD)</h3>
         <div class="stats-grid">
@@ -379,6 +447,7 @@ let html = `
             <div class="stat-card" style="background:${(mainFinance.totalProfitUSD || 0) >= 0 ? 'linear-gradient(145deg,#22c55e,#16a34a)' : 'linear-gradient(145deg,#ef4444,#b91c1c)'};color:white;"><i class="fas fa-chart-line" style="color:white;"></i><h4 style="color:rgba(255,255,255,0.8);">Total Profit</h4><div class="stat-value" style="color:white;">${formatByCurrency(mainFinance.totalProfitUSD || 0, 'USD')}</div><small style="color:rgba(255,255,255,0.7);">Sales - Purchases - Expenses</small></div>
             <div class="stat-card" style="background:#64748b;color:white;"><i class="fas fa-file-invoice" style="color:white;"></i><h4 style="color:rgba(255,255,255,0.8);">Total Expenses</h4><div class="stat-value" style="color:white;">${formatByCurrency(mainFinance.totalExpensesUSD || 0, 'USD')}</div><small style="color:rgba(255,255,255,0.7);">Coming in next phase</small></div>
         </div>
+        ${buildAdminMainClientCards('USD')}
 
         <div class="btn-group"><button class="action-btn" onclick="showAddExpenseModal()"><i class="fas fa-plus-circle"></i> Add New Expense</button></div>`;
   
@@ -1602,16 +1671,13 @@ function loadTotalAmount() {
     let usdShipments = shipments.filter(s => getItemCurrency(s.item) === 'USD');
 
     function calcTotals(list) {
-        let grandTotal = list.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
-        let totalConfirmed = 0, totalPartial = 0, totalUnpaid = 0;
+        let grandTotal = 0, totalConfirmed = 0, totalPartial = 0, totalUnpaid = 0;
         list.forEach(s => {
-            let total = getShipmentCorrectTotal(s);
-            let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? Math.min(shipmentPayments[s.uniqueKey], total) : 0;
-            let unpaid = Math.max(0, total - paid);
-            let displayStatus = getShipmentDisplayStatus(s);
-            if (displayStatus === 'paid') totalConfirmed += paid;
-            else if (displayStatus === 'partial') totalPartial += paid;
-            totalUnpaid += unpaid;
+            let b = getShipmentAmountBreakdown(s);
+            grandTotal += b.total;
+            totalConfirmed += b.paidConfirmed;
+            totalPartial += b.partial;
+            totalUnpaid += b.unpaid;
         });
         return { grandTotal, totalConfirmed, totalPartial, totalUnpaid };
     }

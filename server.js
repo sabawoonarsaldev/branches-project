@@ -47,7 +47,7 @@ const pool = mysql.createPool({
     timezone: '+00:00'
 });
 
-// // Local development
+// Local development
 // const pool = mysql.createPool({
 //     host: 'localhost',
 //     user: 'root',
@@ -148,7 +148,44 @@ pool.getConnection()
         } catch (err) {
             if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding admin_confirmed_amount:', err.message);
         }
+                try {
+            await pool.query(`ALTER TABLE shipment_payments ADD COLUMN description TEXT DEFAULT NULL`);
+            console.log('shipment_payments.description column ready');
+        } catch (err) {
+            if (err.code !== 'ER_DUP_FIELDNAME') console.error('Error adding description:', err.message);
+        }
+
+                try {
+            await pool.query(`CREATE TABLE IF NOT EXISTS payment_remittances (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                main_client VARCHAR(100) NOT NULL,
+                currency VARCHAR(3) NOT NULL DEFAULT 'AFG',
+                amount DECIMAL(14,2) NOT NULL,
+                description TEXT,
+                bill_numbers TEXT,
+                branches TEXT,
+                allocations TEXT,
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                sent_date DATE DEFAULT (CURRENT_DATE),
+                decision_date DATE DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`);
+            console.log('payment_remittances table ready');
+        } catch (err) { console.error('Error creating payment_remittances:', err.message); }
+
+                try {
+            await pool.query(`CREATE TABLE IF NOT EXISTS bill_payment_notes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                bill_number VARCHAR(100) NOT NULL,
+                currency VARCHAR(3) NOT NULL DEFAULT 'AFG',
+                note TEXT,
+                created_date DATE DEFAULT (CURRENT_DATE),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )`);
+            console.log('bill_payment_notes table ready');
+        } catch (err) { console.error('Error creating bill_payment_notes:', err.message); }
     })
+    
     .catch(err => {
         console.error('MySQL connection error:', err);
     });
@@ -164,6 +201,26 @@ app.use(cors({
     allowedHeaders: ['Content-Type']
 }));
 app.use(express.json());
+
+
+app.post('/api/bill-payment-notes', async (req, res) => {
+    const { bill_number, currency, note } = req.body;
+    try {
+        await pool.execute(
+            'INSERT INTO bill_payment_notes (bill_number, currency, note) VALUES (?, ?, ?)',
+            [bill_number, currency === 'USD' ? 'USD' : 'AFG', note || '']
+        );
+        res.json({ message: 'saved' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/bill-payment-notes', async (req, res) => {
+    try {
+        const [rows] = await pool.execute('SELECT * FROM bill_payment_notes ORDER BY created_at ASC');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // ============= INVENTORY API =============
 
@@ -1786,6 +1843,80 @@ app.put('/api/returns/:id/approve-full', async (req, res) => {
         console.error('Error in approve-full:', err);
         res.status(500).json({ error: err.message });
     }
+});
+
+// ============= PAYMENT REMITTANCES API =============
+app.post('/api/remittances', async (req, res) => {
+    const { main_client, currency, amount, description, bill_numbers, branches, allocations } = req.body;
+    try {
+        const [result] = await pool.execute(
+            `INSERT INTO payment_remittances (main_client, currency, amount, description, bill_numbers, branches, allocations)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [main_client, currency === 'USD' ? 'USD' : 'AFG', amount, description || '',
+             JSON.stringify(bill_numbers || []), JSON.stringify(branches || []), JSON.stringify(allocations || [])]
+        );
+        const [rows] = await pool.execute('SELECT * FROM payment_remittances WHERE id = ?', [result.insertId]);
+        res.json(rows[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/remittances', async (req, res) => {
+    try {
+        const [rows] = await pool.execute('SELECT * FROM payment_remittances ORDER BY id DESC');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/remittances/:id/approve', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [rows] = await pool.execute('SELECT * FROM payment_remittances WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Remittance not found' });
+        const rem = rows[0];
+        if (rem.status !== 'pending') return res.status(400).json({ error: 'Remittance already processed' });
+
+        const allocs = JSON.parse(rem.allocations || '[]');
+        for (const a of allocs) {
+            await pool.execute(
+                `UPDATE shipment_payments
+                 SET admin_confirmed_amount = LEAST(paid_amount, admin_confirmed_amount + ?), confirmed_date = CURRENT_DATE
+                 WHERE shipment_id = ?`,
+                [a.amount, a.shipment_id]
+            );
+            await pool.execute(
+                `UPDATE shipment_payments
+                 SET confirmed_by_admin = IF(admin_confirmed_amount >= paid_amount - 0.01, 1, 0)
+                 WHERE shipment_id = ?`,
+                [a.shipment_id]
+            );
+        }
+        await pool.execute(`UPDATE payment_remittances SET status = 'approved', decision_date = CURRENT_DATE WHERE id = ?`, [id]);
+        const [updated] = await pool.execute('SELECT * FROM payment_remittances WHERE id = ?', [id]);
+        res.json(updated[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/remittances/:id/reject', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [rows] = await pool.execute('SELECT * FROM payment_remittances WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Remittance not found' });
+        const rem = rows[0];
+        if (rem.status !== 'pending') return res.status(400).json({ error: 'Remittance already processed' });
+
+        const allocs = JSON.parse(rem.allocations || '[]');
+        for (const a of allocs) {
+            await pool.execute(
+                `UPDATE shipment_payments
+                 SET paid_amount = GREATEST(admin_confirmed_amount, paid_amount - ?)
+                 WHERE shipment_id = ?`,
+                [a.amount, a.shipment_id]
+            );
+        }
+        await pool.execute(`UPDATE payment_remittances SET status = 'rejected', decision_date = CURRENT_DATE WHERE id = ?`, [id]);
+        const [updated] = await pool.execute('SELECT * FROM payment_remittances WHERE id = ?', [id]);
+        res.json(updated[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Start server

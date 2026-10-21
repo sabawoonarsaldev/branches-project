@@ -783,16 +783,13 @@ window.loadTotalAmountMain = async function () {
     let usdShipments = shipments.filter(s => getItemCurrency(s.item) === 'USD');
 
     function calcTotals(list) {
-        let grandTotal = list.reduce((sum, s) => sum + getShipmentCorrectTotal(s), 0);
-        let totalConfirmed = 0, totalPartial = 0, totalUnpaid = 0;
+        let grandTotal = 0, totalConfirmed = 0, totalPartial = 0, totalUnpaid = 0;
         list.forEach(s => {
-            let total = getShipmentCorrectTotal(s);
-            let paid = (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? Math.min(shipmentPayments[s.uniqueKey], total) : getShipmentPaidAmount(s);
-            let unpaid = Math.max(0, total - paid);
-            let displayStatus = getShipmentDisplayStatus(s);
-            if (displayStatus === 'paid') totalConfirmed += paid;
-            else if (displayStatus === 'partial') totalPartial += paid;
-            totalUnpaid += unpaid;
+            let b = getShipmentAmountBreakdown(s);
+            grandTotal += b.total;
+            totalConfirmed += b.paidConfirmed;
+            totalPartial += b.partial;
+            totalUnpaid += b.unpaid;
         });
         return { grandTotal, totalConfirmed, totalPartial, totalUnpaid };
     }

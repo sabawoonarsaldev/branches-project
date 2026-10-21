@@ -297,7 +297,13 @@ function renderDiscountRows(items) {
             <td>${formatByCurrency(originalPrice, currency)}</td>
             <td>${renderPriceWithDiscount(originalPrice, item.sellingPrice, item.name, currency)}</td>
             <td>${hasDiscount ? `<span class="discount-badge">-${discount.discountPercent}% OFF</span>` : '<span style="color:#64748b;">No Discount</span>'}</td>
-            <td><button class="btn btn-edit" onclick="showItemDiscountModal('${item.name}', ${item.sellingPrice}, '${currency}')"><i class="fas fa-percent"></i> Apply Discount</button></td>
+            <td>
+                ${hasDiscount
+                    ? `<button class="btn btn-edit" onclick="showItemDiscountModal('${item.name}', ${originalPrice}, '${currency}')"><i class="fas fa-edit"></i> Update</button>
+                       <button class="btn btn-delete" onclick="removeItemDiscount('${item.name}')"><i class="fas fa-trash"></i> Delete</button>`
+                    : `<button class="btn btn-edit" onclick="showItemDiscountModal('${item.name}', ${item.sellingPrice}, '${currency}')"><i class="fas fa-percent"></i> Apply Discount</button>`
+                }
+            </td>
         </tr>`;
     }).join('');
 }
@@ -372,6 +378,55 @@ window.toggleGlobalDiscountInput = function () {
     document.getElementById('globalFixedInput').style.display = type === 'fixed' ? 'block' : 'none';
 };
 
+
+window.removeItemDiscount = async function (itemName) {
+    if (!confirm(`Remove discount from "${itemName}" and restore original price?`)) return;
+    let discount = getItemDiscount(itemName);
+    if (!discount) { alert('No discount found for this item.'); return; }
+    let originalPrice = discount.originalPrice;
+
+    let mainItem = mainInventory.find(i => i.name === itemName);
+    if (mainItem) mainItem.sellingPrice = originalPrice;
+    mainClientItems.forEach(item => { if (item.name === itemName) item.sellingPrice = originalPrice; });
+    Object.keys(branchInventory).forEach(branch => {
+        branchInventory[branch].forEach(item => { if (item.name === itemName) item.sellingPrice = originalPrice; });
+    });
+    mainClientToBranchShipments.forEach(shipment => {
+        if (shipment.item === itemName) {
+            let branchItems = branchInventory[shipment.branch] || [];
+            let hasRemainingStock = branchItems.some(i => i.name === itemName && i.quantity > 0);
+            if (hasRemainingStock) shipment.sellingPrice = originalPrice;
+        }
+    });
+
+    delete itemDiscounts[itemName];
+
+    try {
+        const branches = getBranchUsers();
+        for (const branchUser of branches) {
+            const branchItems = branchInventory[branchUser.username] || [];
+            for (const bItem of branchItems) {
+                if (bItem.name === itemName && bItem.id) {
+                    await fetch(`/api/branch-inventory/${bItem.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ quantity: bItem.quantity, selling_price: originalPrice })
+                    });
+                }
+            }
+        }
+    } catch(err) { console.log('Error restoring branch inventory prices:', err); }
+
+    try {
+        await deleteDiscount(itemName);
+    } catch (err) { console.log('Error deleting discount:', err); }
+
+    saveData();
+    renderDiscountManagement();
+    alert(`Discount removed from "${itemName}". Price restored to ${formatByCurrency(originalPrice, mainItem ? (mainItem.currency||'AFG') : 'AFG')}.`);
+};
+
+
 window.applyItemDiscount = function (itemName) {
     let type = document.getElementById('discountType').value;
     let discountValue = type === 'percent' ? parseFloat(document.getElementById('discountPercent').value) : parseFloat(document.getElementById('discountAmount').value);
@@ -421,8 +476,7 @@ function renderAdminPayments() {
             </div>
             <div class="filter-row" style="grid-template-columns:1fr 1fr 1fr;">
                 <div class="filter-group"><label><i class="fas fa-calendar"></i> Time Period</label>
-                    <select id="adminPaymentTimePeriod" onchange="toggleAdminPaymentCustomDate()">
-                        <option value="all">All Time</option><option value="daily">Daily</option>
+                    <select id="adminPaymentTimePeriod" onchange="toggleAdminPaymentCustomDate(); updateAdminPaymentBillNumberOptions()">                        <option value="all">All Time</option><option value="daily">Daily</option>
                         <option value="weekly">Weekly</option><option value="monthly">Monthly</option>
                         <option value="custom">Custom Range</option>
                     </select>
@@ -430,10 +484,9 @@ function renderAdminPayments() {
                 <div class="filter-group" id="adminPaymentCustomDate" style="display:none;grid-column:span 2;">
                     <label><i class="fas fa-calendar-alt"></i> Custom Date Range</label>
                     <div class="date-range">
-                        <input type="date" id="adminPaymentStartDate" value="${getWeekAgoDate()}">
+                        <input type="date" id="adminPaymentStartDate" value="${getWeekAgoDate()}" onchange="updateAdminPaymentBillNumberOptions()">
                         <span>to</span>
-                        <input type="date" id="adminPaymentEndDate" value="${getTodayDate()}">
-                    </div>
+                        <input type="date" id="adminPaymentEndDate" value="${getTodayDate()}" onchange="updateAdminPaymentBillNumberOptions()">                    </div>
                 </div>
             </div>
                         <button class="btn-filter" onclick="loadAdminBranchPayments()"><i class="fas fa-search"></i> View Payments</button>
@@ -454,10 +507,30 @@ window.updateAdminPaymentBillNumberOptions = function() {
     let branch = document.getElementById('adminPaymentBranchSelect')?.value;
     let select = document.getElementById('adminPaymentBillNumberSelect');
     if (!select) return;
+
+    let period = document.getElementById('adminPaymentTimePeriod')?.value || 'all';
+    let now = new Date();
+    let startDate = null, endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+    if (period === 'daily') startDate = new Date(now.toDateString());
+    else if (period === 'weekly') { startDate = new Date(now); startDate.setDate(now.getDate() - 7); startDate.setHours(0,0,0,0); }
+    else if (period === 'monthly') startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    else if (period === 'custom') {
+        let s = document.getElementById('adminPaymentStartDate')?.value;
+        let e = document.getElementById('adminPaymentEndDate')?.value;
+        if (s && e) { startDate = new Date(s); endDate = new Date(e); endDate.setHours(23,59,59,999); }
+    }
+
     let list = branch
         ? mainClientToBranchShipments.filter(s => s.branch === branch)
         : mainClientToBranchShipments;
-    let billNumbers = [...new Set(list.filter(s => s.billNumber && s.billNumber.trim() !== '').map(s => s.billNumber))];
+    list = list.filter(s => {
+        if (!s.billNumber || s.billNumber.trim() === '') return false;
+        if (!startDate) return true;
+        let d = new Date(s.date);
+        return d >= startDate && d <= endDate;
+    });
+    let billNumbers = [...new Set(list.map(s => s.billNumber))];
     select.innerHTML = `<option value="">-- All Bills --</option>` + billNumbers.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
 };
 
@@ -583,64 +656,31 @@ window.loadAllPaymentsData = function() {
 
 window.loadAdminBranchPayments = async function() {
     let branch = document.getElementById('adminPaymentBranchSelect')?.value;
-    let period = document.getElementById('adminPaymentTimePeriod')?.value || 'all';
     let billNumber = document.getElementById('adminPaymentBillNumberSelect')?.value || '';
-    
+
     await refreshDataFromServer();
 
     let shipments = branch
         ? mainClientToBranchShipments.filter(s => s.branch === branch)
         : mainClientToBranchShipments;
+    if (billNumber) shipments = shipments.filter(s => s.billNumber === billNumber);
 
-    if (billNumber) {
-        shipments = shipments.filter(s => s.billNumber === billNumber);
-    } else if (period !== 'all') {
-        let now = new Date();
-        let startDate, endDate = new Date();
-        endDate.setHours(23, 59, 59, 999);
-        if (period === 'daily') startDate = new Date(now.toDateString());
-        else if (period === 'weekly') { startDate = new Date(now); startDate.setDate(now.getDate() - 7); }
-        else if (period === 'monthly') startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        else if (period === 'custom') {
-            let s = document.getElementById('adminPaymentStartDate')?.value;
-            let e = document.getElementById('adminPaymentEndDate')?.value;
-            if (s && e) { startDate = new Date(s); endDate = new Date(e); endDate.setHours(23,59,59,999); }
-        }
-        if (startDate) {
-            shipments = shipments.filter(s => {
-                let d = new Date(s.date);
-                return d >= startDate && d <= endDate;
-            });
-        }
-    }
-
-    let processedShipments = shipments.map(s => {
-        let currency = getItemCurrency(s.item);
-        let breakdown = getShipmentAmountBreakdown(s);
-        let awaitingConfirm = isShipmentAwaitingAdminConfirm(s);
-        return { ...s, ...breakdown, currency, awaitingConfirm };
-    });
-
+    let processedShipments = shipments.map(s => ({ ...s, ...getShipmentAmountBreakdown(s), currency: getItemCurrency(s.item) }));
     let afgShipments = processedShipments.filter(s => s.currency !== 'USD');
     let usdShipments = processedShipments.filter(s => s.currency === 'USD');
 
     function sums(list) {
         return {
-            totalValue: list.reduce((sum,s)=>sum+s.total,0),
-            totalPaid: list.reduce((sum,s)=>sum+s.paidConfirmed,0),
-            totalPartial: list.reduce((sum,s)=>sum+s.partial,0),
-            totalUnpaid: list.reduce((sum,s)=>sum+s.unpaid,0)
+            totalValue: list.reduce((sum, s) => sum + s.total, 0),
+            totalPaid: list.reduce((sum, s) => sum + s.paidConfirmed, 0),
+            totalPartial: list.reduce((sum, s) => sum + s.partial, 0),
+            totalUnpaid: list.reduce((sum, s) => sum + s.unpaid, 0)
         };
     }
     let afgSums = sums(afgShipments);
     let usdSums = sums(usdShipments);
 
-    let afgAwaiting = afgShipments.filter(s => s.awaitingConfirm);
-    let usdAwaiting = usdShipments.filter(s => s.awaitingConfirm);
-    window._adminAwaitingKeys = {
-        AFG: afgAwaiting.map(s => s.uniqueKey).filter(Boolean),
-        USD: usdAwaiting.map(s => s.uniqueKey).filter(Boolean)
-    };
+    let remList = getFilteredRemittances({ branch: branch || '', billNumber, range: getAdminPaymentRange() });
 
     let container = document.getElementById('adminPaymentsContainer');
     if (!container) return;
@@ -655,9 +695,6 @@ window.loadAdminBranchPayments = async function() {
                 <div class="summary-item"><div class="label">Total Unpaid</div><div class="value" style="color:#ef4444;">${formatMoney(afgSums.totalUnpaid)}</div></div>
             </div>
         </div>
-        <div class="payment-actions" style="text-align:right;margin-bottom:20px;">
-            <button class="btn-bulk-payment" onclick="bulkConfirmAdminPayments('AFG')" ${afgAwaiting.length===0?'disabled':''}><i class="fas fa-check-double"></i> Confirm All (AFG) - ${afgAwaiting.length}</button>
-        </div>
         ${usdShipments.length > 0 ? `
         <div class="payment-summary" style="border:2px solid #3b82f6;">
             <h3 style="color:#2563eb;"><i class="fas fa-dollar-sign"></i> Payment Summary (USD)</h3>
@@ -667,35 +704,35 @@ window.loadAdminBranchPayments = async function() {
                 <div class="summary-item"><div class="label">Total Partial</div><div class="value" style="color:#f59e0b;">${formatByCurrency(usdSums.totalPartial,'USD')}</div></div>
                 <div class="summary-item"><div class="label">Total Unpaid</div><div class="value" style="color:#ef4444;">${formatByCurrency(usdSums.totalUnpaid,'USD')}</div></div>
             </div>
-        </div>
-        <div class="payment-actions" style="text-align:right;margin-bottom:20px;">
-            <button class="btn-bulk-payment" onclick="bulkConfirmAdminPayments('USD')" ${usdAwaiting.length===0?'disabled':''}><i class="fas fa-check-double"></i> Confirm All (USD) - ${usdAwaiting.length}</button>
         </div>` : ''}
-        ${processedShipments.length === 0 
-            ? `<div class="empty-state"><i class="fas fa-box"></i><h3>No Payments Found</h3></div>`
-            : `<div class="table-wrapper"><table>
-                <thead><tr><th>Distributed</th><th>Bill Number</th><th>Branch</th><th>Item</th><th>Currency</th><th>Qty</th><th>Total</th><th>Paid</th><th>Partial</th><th>Unpaid</th><th>Main Client Paid</th><th>Admin Confirmed</th><th>Action</th></tr></thead>
-                <tbody>${processedShipments.sort((a,b) => new Date(b.date)-new Date(a.date)).map(s => {
-                    let fmt = (v) => formatByCurrency(v, s.currency);
-                    let mcPaidDate = s.uniqueKey ? (shipmentMainClientPaidDate[s.uniqueKey] || '-') : '-';
-                    let confirmedDate = s.uniqueKey ? (shipmentConfirmedDate[s.uniqueKey] || '-') : '-';
-                    return `<tr>
-                        <td>${s.date}</td><td>${s.billNumber || '-'}</td><td>${s.branch}</td><td>${s.item}</td>
-                        <td><span class="badge ${s.currency==='USD'?'badge-mainclient':'badge-active'}">${s.currency}</span></td>
-                        <td>${s.qty}</td>
-                        <td class="total-value">${fmt(s.total)}</td>
-                        <td style="color:#22c55e;font-weight:600;">${fmt(s.paidConfirmed)}</td>
-                        <td style="color:#f59e0b;font-weight:600;">${fmt(s.partial)}</td>
-                        <td style="color:#ef4444;font-weight:600;">${fmt(s.unpaid)}</td>
-                        <td>${mcPaidDate}</td>
-                        <td>${confirmedDate}</td>
-                        <td>${s.awaitingConfirm ? `<button class="btn btn-success" onclick="confirmAdminShipmentPayment('${s.uniqueKey}')"><i class="fas fa-check-double"></i> Confirm ${fmt(s.partial)}</button>` : '-'}</td>
-                    </tr>`;
-                }).join('')}</tbody>
-            </table></div>`
-        }`;
+        <h3 style="margin:25px 0 15px;"><i class="fas fa-money-check-alt"></i> Remittances</h3>
+        ${billNumber ? renderBillNotesBox(billNumber, 'AFG') + renderBillNotesBox(billNumber, 'USD') : ''}
+        ${renderRemittanceSection(remList, true)}`;
 };
 
+window.decideRemittances = async function(ids, action) {
+    if (!ids || ids.length === 0) { alert('Please select at least one remittance.'); return; }
+    let verb = action === 'approve' ? 'approve' : 'reject';
+    let extra = action === 'reject' ? '\nRejected payments will return to the Main Client as unpaid.' : '';
+    if (!confirm(`Are you sure you want to ${verb} ${ids.length} remittance(s)?${extra}`)) return;
+
+    let failed = 0;
+    for (const id of ids) {
+        try {
+            const res = await fetch(`/api/remittances/${id}/${action}`, { method: 'PUT' });
+            if (!res.ok) failed++;
+        } catch (e) { failed++; }
+    }
+    await loadAdminBranchPayments();
+    alert(failed === 0 ? `✅ ${ids.length} remittance(s) ${action === 'approve' ? 'approved' : 'rejected'}.` : `Done, but ${failed} failed.`);
+};
+
+function getSelectedRemittanceIds() {
+    return Array.from(document.querySelectorAll('.rem-chk:checked')).map(c => parseInt(c.value));
+}
+
+window.approveSelectedRemittances = function() { decideRemittances(getSelectedRemittanceIds(), 'approve'); };
+window.rejectSelectedRemittances = function() { decideRemittances(getSelectedRemittanceIds(), 'reject'); };
 
 window.bulkConfirmAdminPayments = async function(currency) {
     let keys = (window._adminAwaitingKeys && window._adminAwaitingKeys[currency]) || [];
@@ -1119,3 +1156,19 @@ window.deletePaymentToAdmin = async function(id) {
         alert('Payment deleted successfully!');
     } catch(err) { alert('Failed to delete: ' + err.message); }
 };
+
+function getAdminPaymentRange() {
+    let period = document.getElementById('adminPaymentTimePeriod')?.value || 'all';
+    let today = getTodayDate();
+    let now = new Date();
+    if (period === 'all') return null;
+    if (period === 'daily') return { start: today, end: today };
+    if (period === 'weekly') {
+        let s = new Date(now); s.setDate(now.getDate() - 7);
+        return { start: s.toISOString().split('T')[0], end: today };
+    }
+    if (period === 'monthly') return { start: today.slice(0, 8) + '01', end: today };
+    let s = document.getElementById('adminPaymentStartDate')?.value;
+    let e = document.getElementById('adminPaymentEndDate')?.value;
+    return (s && e) ? { start: s, end: e } : null;
+}

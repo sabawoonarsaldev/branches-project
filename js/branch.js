@@ -27,7 +27,7 @@ async function renderBranchInventory() {
             html += `<div class="alert-box"><i class="fas fa-exclamation-triangle"></i><strong>Warning:</strong> You have ${lowStockItems.length} item(s) with low stock</div>`;
         }
         html += `<div class="table-wrapper"><table class="inventory-table">
-            <thead><tr><th>#</th><th>Item Name</th><th>Currency</th><th>Initial Stock</th><th>Current Stock</th><th>Selling Price</th><th>Discount</th><th>Total Value</th><th>Payment Status</th><th>Remaining Payment</th><th>Receive Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>#</th><th>Item Name</th><th>Currency</th><th>Initial Stock</th><th>Current Stock</th><th>Selling Price</th><th>Discount</th><th>Total Value</th><th>Receive Status</th><th>Actions</th></tr></thead>
             <tbody id="branchInventoryTableBody">${renderBranchInventoryRows(items)}</tbody>
         </table></div>`;
     }
@@ -36,18 +36,30 @@ async function renderBranchInventory() {
 
 function renderBranchInventoryRows(items) {
     let branch = currentUser.username;
-    if (!items || items.length === 0) return '<tr><td colspan="12" style="text-align:center;">No items in inventory</td></tr>';
+    if (!items || items.length === 0) return '<tr><td colspan="10" style="text-align:center;">No items in inventory</td></tr>';
 
-    return items.map((item, index) => {
-        let currency = getItemCurrency(item.name);
+    items = [...items].sort((a, b) => {
+        let da = formatDateForCompare(a.shipmentDate || a.distributionDate || '');
+        let db = formatDateForCompare(b.shipmentDate || b.distributionDate || '');
+        if (da !== db) return db.localeCompare(da);
+        return (b.id || 0) - (a.id || 0);
+    });
+
+    items = [...items].sort((a, b) => {
+        let da = formatDateForCompare(a.shipmentDate || a.distributionDate || '');
+        let db = formatDateForCompare(b.shipmentDate || b.distributionDate || '');
+        if (da !== db) return db.localeCompare(da);
+        return (b.id || 0) - (a.id || 0);
+    });
+    return items.map((item, index) => {        let currency = getItemCurrency(item.name);
         let isLowStock = item.quantity < 10;
         let discount = getItemDiscount(item.name);
         let currentStock = item.quantity;
         let initialStock = (item.originalQuantity && item.originalQuantity >= item.quantity) ? item.originalQuantity : item.quantity;
         let totalValue = (item.sellingPrice || 0) * currentStock;
         let uniqueId = item.distributionId || `item_${item.id}_${Date.now()}_${index}`;
-        let shipmentDate = item.shipmentDate || item.distributionDate || getTodayDate();
-
+        let shipmentDate = formatDateForCompare(item.shipmentDate || item.distributionDate || getTodayDate());
+        
         let originalShipment = mainClientToBranchShipments.find(s => s.branch === branch && s.uniqueKey === uniqueId);
         let paymentStatus = originalShipment ? getShipmentDisplayStatus(originalShipment) : 'unpaid';
         let isPaid = paymentStatus === 'paid';
@@ -97,8 +109,6 @@ function renderBranchInventoryRows(items) {
             <td>${formatByCurrency(item.sellingPrice, currency)}</td>
             <td>${discount ? `<span class="discount-badge">-${discount.discountPercent}%</span>` : '-'}</td>
             <td class="total-value">${formatByCurrency(totalValue, currency)}</td>
-            <td>${paymentBadge}</td>
-            <td class="reminder-amount ${remainingValue > 0 ? 'unpaid-value' : 'paid-value'}">${formatByCurrency(remainingValue, currency)}</td>
             <td style="text-align:center;">${receiveBadge}</td>
             <td>
                 ${!isMarkedReceived

@@ -6,6 +6,7 @@
 // ==================== BRANCH PAYMENTS ====================
 async function renderBranchFinance() {
     let branch = currentUser.username;
+    await refreshDataFromServer();
 
     try {
         const salesResponse = await fetch(`/api/sales/${branch}`);
@@ -65,6 +66,73 @@ async function renderBranchFinance() {
             <small style="color:rgba(255,255,255,0.7);">Gross Profit - Expenses</small>
         </div>`;
 
+                let owners = getMainClientUsers().map(u => u.username).join(', ') || 'Main Client';
+
+        let stockItems = (branchInventory[branch] || []).filter(i => getItemCurrency(i.name) === currency && i.quantity > 0);
+        let stockQty = stockItems.reduce((sum, i) => sum + (i.quantity || 0), 0);
+        let stockValue = stockItems.reduce((sum, i) => sum + ((i.sellingPrice || 0) * (i.quantity || 0)), 0);
+
+        let paidToMC = 0, unpaidToMC = 0;
+        shipments.forEach(s => {
+            let total = getShipmentCorrectTotal(s);
+            let paid = Math.min(getShipmentPaidAmount(s), total);
+            paidToMC += paid;
+            unpaidToMC += Math.max(0, total - paid);
+        });
+
+        let rets = getBranchReturns(branch).filter(r => getItemCurrency(r.itemName) === currency);
+        let retValue = (r) => (r.quantity || 0) * (r.pricePerUnit || 0);
+        let pendingRets = rets.filter(r => r.status === 'pending');
+        let approvedRets = rets.filter(r => r.status === 'approved' || r.status === 'paid');
+        let rejectedRets = rets.filter(r => r.status === 'rejected');
+        let sumVal = (list) => list.reduce((sum, r) => sum + retValue(r), 0);
+
+        html += `
+        <div class="stats-grid" style="margin-top:20px;">
+            <div class="stat-card" style="background:linear-gradient(145deg,#0ea5e9,#0369a1);color:white;">
+                <i class="fas fa-boxes" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Stock in Inventory</h4>
+                <div class="stat-value" style="color:white;">${fmt(stockValue)}</div>
+                <small style="color:rgba(255,255,255,0.7);">${stockQty} item(s) in stock</small>
+            </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;">
+                <i class="fas fa-check-circle" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Total Paid to ${escapeHtml(owners)}</h4>
+                <div class="stat-value" style="color:white;">${fmt(paidToMC)}</div>
+            </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#ef4444,#b91c1c);color:white;">
+                <i class="fas fa-clock" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Total Unpaid to ${escapeHtml(owners)}</h4>
+                <div class="stat-value" style="color:white;">${fmt(unpaidToMC)}</div>
+            </div>
+        </div>
+        <div class="stats-grid" style="margin-top:20px;">
+            <div class="stat-card" style="background:linear-gradient(145deg,#8b5cf6,#7c3aed);color:white;">
+                <i class="fas fa-undo-alt" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Total Return Value</h4>
+                <div class="stat-value" style="color:white;">${fmt(sumVal(rets))}</div>
+                <small style="color:rgba(255,255,255,0.7);">${rets.length} return(s)</small>
+            </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#f59e0b,#d97706);color:white;">
+                <i class="fas fa-hourglass-half" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Pending Returns</h4>
+                <div class="stat-value" style="color:white;">${fmt(sumVal(pendingRets))}</div>
+                <small style="color:rgba(255,255,255,0.7);">${pendingRets.length} return(s)</small>
+            </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#22c55e,#16a34a);color:white;">
+                <i class="fas fa-check-double" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Approved Returns</h4>
+                <div class="stat-value" style="color:white;">${fmt(sumVal(approvedRets))}</div>
+                <small style="color:rgba(255,255,255,0.7);">${approvedRets.length} return(s)</small>
+            </div>
+            <div class="stat-card" style="background:linear-gradient(145deg,#ef4444,#b91c1c);color:white;">
+                <i class="fas fa-times-circle" style="color:white;"></i>
+                <h4 style="color:rgba(255,255,255,0.8);">Rejected Returns</h4>
+                <div class="stat-value" style="color:white;">${fmt(sumVal(rejectedRets))}</div>
+                <small style="color:rgba(255,255,255,0.7);">${rejectedRets.length} return(s)</small>
+            </div>
+        </div>`;
+
         if (exps.length > 0) {
             html += `<h4 style="margin:20px 0 12px;">Expense History</h4>
             <div class="table-wrapper"><table class="inventory-table">
@@ -118,19 +186,71 @@ async function renderBranchFinance() {
 }
 
 function renderBranchPayments() {
+    document.getElementById('content').innerHTML = `
+        <div class="header-actions">
+            <h2 class="page-title">My Payments</h2>
+            <button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button>
+        </div>
+        <div style="background:#f0fdf4;border-radius:16px;padding:16px;margin-bottom:20px;border:2px solid #bbf7d0;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+            <label style="color:#166534;font-weight:600;"><i class="fas fa-calendar" style="margin-right:6px;"></i>Time Period:</label>
+            <select id="branchPayTimeFilter" onchange="renderBranchPaymentsContent()" style="padding:10px 16px;border:2px solid #bbf7d0;border-radius:12px;background:white;color:#166534;font-weight:600;">
+                <option value="all">All Time</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="custom">Custom Range</option>
+            </select>
+            <div id="branchPayCustomRange" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="date" id="branchPayStart" value="${getWeekAgoDate()}" onchange="renderBranchPaymentsContent()" style="padding:10px;border:2px solid #bbf7d0;border-radius:12px;">
+                <span style="color:#166534;">to</span>
+                <input type="date" id="branchPayEnd" value="${getTodayDate()}" onchange="renderBranchPaymentsContent()" style="padding:10px;border:2px solid #bbf7d0;border-radius:12px;">
+            </div>
+        </div>
+        <div id="branchPaymentsContent"></div>`;
+    renderBranchPaymentsContent();
+}
+
+function renderBranchPaymentsContent() {
     let branch = currentUser.username;
-    let branchShipments = mainClientToBranchShipments.filter(s => s.branch === branch).map(s => ({ ...s, currency: getItemCurrency(s.item) }));
+    let filter = document.getElementById('branchPayTimeFilter')?.value || 'all';
+    let customRange = document.getElementById('branchPayCustomRange');
+    if (customRange) customRange.style.display = filter === 'custom' ? 'flex' : 'none';
+
+    let today = getTodayDate();
+    let now = new Date();
+    let start = null, end = today;
+    if (filter === 'daily') start = today;
+    else if (filter === 'weekly') { let s = new Date(now); s.setDate(now.getDate() - 7); start = s.toISOString().split('T')[0]; }
+    else if (filter === 'monthly') start = today.slice(0, 8) + '01';
+    else if (filter === 'custom') {
+        start = document.getElementById('branchPayStart')?.value || null;
+        end = document.getElementById('branchPayEnd')?.value || today;
+    }
+
+    let branchShipments = mainClientToBranchShipments
+        .filter(s => s.branch === branch)
+        .filter(s => {
+            if (!start) return true;
+            let d = formatDateForCompare(s.date);
+            return d >= start && d <= end;
+        })
+        .map(s => ({ ...s, currency: getItemCurrency(s.item) }));
 
     let shipmentsWithCalc = branchShipments.map(s => {
         let correctTotal = getShipmentCorrectTotal(s);
         let paidAmount = Math.min(
-            (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) 
-                ? shipmentPayments[s.uniqueKey] : 0,
+            (s.uniqueKey && shipmentPayments[s.uniqueKey] !== undefined) ? shipmentPayments[s.uniqueKey] : 0,
             correctTotal
         );
         let unpaidAmount = Math.max(0, correctTotal - paidAmount);
         let status = getShipmentDisplayStatus(s);
         return { ...s, totalPrice: correctTotal, paidAmount, unpaidAmount, status };
+    });
+
+    shipmentsWithCalc.sort((a, b) => {
+        let da = formatDateForCompare(a.date), db = formatDateForCompare(b.date);
+        if (da !== db) return db.localeCompare(da);
+        return (b.id || 0) - (a.id || 0);
     });
 
     let afgList = shipmentsWithCalc.filter(s => s.currency !== 'USD');
@@ -146,15 +266,10 @@ function renderBranchPayments() {
             totalUnpaid: list.reduce((sum, s) => sum + s.unpaidAmount, 0)
         };
     }
-
     let afgSummary = calcSummary(afgList);
     let usdSummary = calcSummary(usdList);
 
     let html = `
-        <div class="header-actions">
-            <h2 class="page-title">My Payments</h2>
-            <button class="refresh-btn" onclick="refreshCurrentSection()"><i class="fas fa-sync-alt"></i> Refresh</button>
-        </div>
         <div class="payment-summary">
             <h3><i class="fas fa-chart-pie"></i> Payment Summary (AFG)</h3>
             <div class="summary-stats">
@@ -179,16 +294,16 @@ function renderBranchPayments() {
             </div>
         </div>` : ''}
         <h3 style="margin-bottom:20px;">Payment Details</h3>
-        ${shipmentsWithCalc.length === 0 
-            ? `<div class="empty-state"><i class="fas fa-box"></i><h3>No Payments Yet</h3></div>`
+        ${shipmentsWithCalc.length === 0
+            ? `<div class="empty-state"><i class="fas fa-box"></i><h3>No Payments Found</h3></div>`
             : `<div class="table-wrapper"><table>
                 <thead><tr><th>#</th><th>Date</th><th>Item</th><th>Currency</th><th>Qty</th><th>Price/Unit</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th></tr></thead>
-                <tbody>${shipmentsWithCalc.sort((a,b) => new Date(b.date)-new Date(a.date)).map((s,i) => {
+                <tbody>${shipmentsWithCalc.map((s, i) => {
                     let sc = s.status === 'paid' ? 'badge-paid' : (s.status === 'partial' ? 'badge-partial' : 'badge-unpaid');
                     let fmt = (v) => formatByCurrency(v, s.currency);
                     return `<tr>
-                        <td>${i+1}</td><td>${s.date}</td><td>${s.item}</td>
-                        <td><span class="badge ${s.currency==='USD'?'badge-mainclient':'badge-active'}">${s.currency}</span></td>
+                        <td>${i + 1}</td><td>${formatDateForCompare(s.date)}</td><td>${s.item}</td>
+                        <td><span class="badge ${s.currency === 'USD' ? 'badge-mainclient' : 'badge-active'}">${s.currency}</span></td>
                         <td>${s.qty}</td>
                         <td>${fmt(s.sellingPrice)}</td>
                         <td class="total-value">${fmt(s.totalPrice)}</td>
@@ -215,7 +330,9 @@ function renderBranchPayments() {
                 </tfoot>
             </table></div>`
         }`;
-    document.getElementById('content').innerHTML = html;
+
+    let container = document.getElementById('branchPaymentsContent');
+    if (container) container.innerHTML = html;
 }
 
 // ==================== BRANCH RETURNS ====================

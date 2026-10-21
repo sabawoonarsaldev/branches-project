@@ -29,7 +29,6 @@ function renderSidebar() {
             <div class="nav-item" onclick="showSection('adminInvoices')"><i class="fas fa-file-invoice"></i> Invoices</div>
             <div class="nav-item" onclick="showSection('discounts')"><i class="fas fa-percent"></i> Discounts</div>
             <div class="nav-item" onclick="showSection('users')"><i class="fas fa-users"></i> Users</div>
-            <div class="nav-item" onclick="showSection('adminPaymentsToAdmin')"><i class="fas fa-hand-holding-usd"></i> Payment to Admin</div>
             <div class="nav-item" onclick="showSection('totalAmount')"><i class="fas fa-chart-pie"></i> Total Amount</div>
             <div class="nav-item" onclick="showSection('adminHistory')"><i class="fas fa-history"></i> History</div>
             <div class="nav-item logout" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</div>
@@ -37,7 +36,6 @@ function renderSidebar() {
     } else if (currentUser.role === 'mainclient') {
         html = `
             <div class="nav-item active" onclick="showSection('mainClientInventory')"><i class="fas fa-box"></i> Shared Inventory</div>
-            <div class="nav-item" onclick="showSection('mainClientPaymentToAdmin')"><i class="fas fa-hand-holding-usd"></i> Payment to Admin</div>
             <div class="nav-item" onclick="showSection('mainClientFinance')"><i class="fas fa-chart-line"></i> My Finance</div>
             <div class="nav-item" onclick="showSection('mainClientExpenses')"><i class="fas fa-money-bill-wave"></i> My Expenses</div>
             <div class="nav-item" onclick="showSection('mainClientDistribute')"><i class="fas fa-share-alt"></i> Distribute</div>
@@ -84,7 +82,6 @@ function showSection(section) {
         else if (section === 'users') renderUsers();
         else if (section === 'totalAmount') renderTotalAmount();
         else if (section === 'adminHistory') renderAdminHistory();
-        else if (section === 'adminPaymentsToAdmin') renderAdminPaymentsToAdmin();
         else if (section === 'allPayments') renderAllPaymentsPage();    } else if (currentUser.role === 'mainclient') {
         if (section === 'mainClientInventory') renderMainClientInventory();
         else if (section === 'mainClientFinance') renderMainClientFinance();
@@ -99,7 +96,6 @@ function showSection(section) {
         else if (section === 'mainClientReturns') renderMainClientReturns();
         else if (section === 'totalAmountMain') renderTotalAmountMain();
         else if (section === 'mainClientHistory') renderMainClientHistory();
-        else if (section === 'mainClientPaymentToAdmin') renderMainClientPaymentToAdmin();
     } else {
         if (section === 'branchInventory') renderBranchInventory();
         else if (section === 'branchSale') renderBranchSale();
@@ -129,7 +125,6 @@ window.refreshCurrentSection = async function () {
         else if (activeSection.includes('expenses')) renderExpenses();
         else if (activeSection.includes('reports')) renderAdminReports();
         else if (activeSection.includes('payments') && !activeSection.includes('payment to')) renderAdminPayments();
-        else if (activeSection.includes('payment to admin')) renderAdminPaymentsToAdmin();
         else if (activeSection.includes('invoices')) renderAdminInvoices();
         else if (activeSection.includes('discounts')) renderDiscountManagement();
         else if (activeSection.includes('users')) renderUsers();
@@ -142,7 +137,6 @@ window.refreshCurrentSection = async function () {
         let activeSection = document.querySelector('.nav-item.active')?.innerText.toLowerCase();
         if (!activeSection) { renderMainClientInventory(); return; }
         if (activeSection.includes('inventory')) renderMainClientInventory();
-        else if (activeSection.includes('payment to admin')) renderMainClientPaymentToAdmin();
         else if (activeSection.includes('finance')) renderMainClientFinance();
         else if (activeSection.includes('expenses')) renderMainClientExpenses();
         else if (activeSection.includes('distribute')) renderMainClientDistribute();

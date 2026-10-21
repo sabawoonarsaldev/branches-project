@@ -59,6 +59,8 @@ let shipmentAdminConfirmed = {};
 let shipmentAdminConfirmedAmount = {};
 let shipmentMainClientPaidDate = {};
 let shipmentConfirmedDate = {};
+let billPaymentNotes = [];
+let remittances = [];
 let currentUser = null;
 
 // ==================== DATE HELPERS ====================
@@ -616,6 +618,17 @@ if (currentUser && currentUser.role === 'admin') {
         }
     } catch (err) { console.log('Error loading branch sales history:', err); }
 }
+
+        try {
+            const remRes = await fetch('/api/remittances');
+            if (remRes.ok) remittances = await remRes.json();
+        } catch (err) { console.log('Error loading remittances:', err); }
+
+        try {
+            const notesRes = await fetch('/api/bill-payment-notes');
+            if (notesRes.ok) billPaymentNotes = await notesRes.json();
+        } catch (err) { console.log('Error loading bill notes:', err); }
+        
         recalcMainFinance();
 
         

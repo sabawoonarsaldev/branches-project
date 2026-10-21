@@ -58,16 +58,23 @@ async function renderMainClientPayments() {
                         ${[...branches].sort((a, b) => b.id - a.id).map(b => `<option value="${b.username}">${b.username} Branch</option>`).join('')}
                     </select>
                 </div>
-                <div class="filter-group">
-                    <label><i class="fas fa-calendar-alt"></i> View Mode</label>
-                    <select id="paymentViewMode" onchange="togglePaymentDateInput()">
-                        <option value="date">By Date</option>
+                                <div class="filter-group">
+                    <label><i class="fas fa-calendar-alt"></i> Time Period</label>
+                    <select id="paymentViewMode" onchange="onPaymentTimeChange()">
                         <option value="alltime">All Time</option>
+                        <option value="daily">Daily (Today)</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="custom">Custom Range</option>
                     </select>
                 </div>
-                <div class="filter-group" id="paymentDateGroup">
-                    <label><i class="fas fa-calendar"></i> Select Date</label>
-                    <input type="date" id="paymentDate" value="${today}" onchange="loadPaymentsByDate()">
+                <div class="filter-group" id="paymentDateGroup" style="display:none;">
+                    <label><i class="fas fa-calendar"></i> Date Range</label>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="date" id="paymentStartDate" value="${getWeekAgoDate()}" onchange="onPaymentTimeChange()">
+                        <span>to</span>
+                        <input type="date" id="paymentEndDate" value="${today}" onchange="onPaymentTimeChange()">
+                    </div>
                 </div>
                 <div class="filter-group" id="paymentBillNumberGroup" style="display:none;">
                     <label><i class="fas fa-receipt"></i> Bill Number</label>
@@ -81,43 +88,60 @@ async function renderMainClientPayments() {
     document.getElementById('content').innerHTML = html;
 }
 
+
+function getPaymentDateRange() {
+    let mode = document.getElementById('paymentViewMode')?.value || 'alltime';
+    let now = new Date();
+    let today = getTodayDate();
+    if (mode === 'alltime') return null;
+    if (mode === 'daily') return { start: today, end: today };
+    if (mode === 'weekly') {
+        let s = new Date(now); s.setDate(now.getDate() - 7);
+        return { start: s.toISOString().split('T')[0], end: today };
+    }
+    if (mode === 'monthly') {
+        let s = new Date(now.getFullYear(), now.getMonth(), 1);
+        return { start: getTodayDate().slice(0, 8) + '01', end: today };
+    }
+    let s = document.getElementById('paymentStartDate')?.value;
+    let e = document.getElementById('paymentEndDate')?.value;
+    return (s && e) ? { start: s, end: e } : null;
+}
+
 window.togglePaymentDateInput = function () {
-    let mode = document.getElementById('paymentViewMode').value;
-    document.getElementById('paymentDateGroup').style.display = mode === 'alltime' ? 'none' : 'block';
+    let mode = document.getElementById('paymentViewMode')?.value;
+    let group = document.getElementById('paymentDateGroup');
+    if (group) group.style.display = mode === 'custom' ? 'block' : 'none';
 };
 
-
-window.updatePaymentBillNumberOptions = function() {
+window.updatePaymentBillNumberOptions = function () {
     let branch = document.getElementById('paymentBranchSelect')?.value;
     let group = document.getElementById('paymentBillNumberGroup');
     let select = document.getElementById('paymentBillNumberSelect');
     if (!branch) { if (group) group.style.display = 'none'; return; }
 
-    let billNumbers = [...new Set(
-        mainClientToBranchShipments
-            .filter(s => s.branch === branch && s.billNumber && s.billNumber.trim() !== '')
-            .map(s => s.billNumber)
-    )];
+    let range = getPaymentDateRange();
+    let list = mainClientToBranchShipments.filter(s => {
+        if (s.branch !== branch || !s.billNumber || s.billNumber.trim() === '') return false;
+        if (!range) return true;
+        let d = formatDateForCompare(s.date);
+        return d >= range.start && d <= range.end;
+    });
+    let billNumbers = [...new Set(list.map(s => s.billNumber))];
 
     if (select) {
         select.innerHTML = `<option value="">-- All Bills --</option>` + billNumbers.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
         select.value = '';
     }
-    if (group) group.style.display = billNumbers.length > 0 ? 'flex' : 'none';
+    if (group) group.style.display = 'flex';
 };
 
-window.onPaymentBillNumberChange = function() {
-    let billNumber = document.getElementById('paymentBillNumberSelect')?.value;
-    if (billNumber) {
-        let shipment = mainClientToBranchShipments.find(s => s.billNumber === billNumber);
-        if (shipment) {
-            let dateInput = document.getElementById('paymentDate');
-            let viewMode = document.getElementById('paymentViewMode');
-            if (dateInput) dateInput.value = shipment.date;
-            if (viewMode) viewMode.value = 'date';
-            togglePaymentDateInput();
-        }
-    }
+window.onPaymentTimeChange = function () {
+    togglePaymentDateInput();
+    updatePaymentBillNumberOptions();
+};
+
+window.onPaymentBillNumberChange = function () {
     loadPaymentsByDate();
 };
 
@@ -151,12 +175,9 @@ window.loadPaymentsByDate = async function () {
         ? mainClientToBranchShipments.filter(s => s.branch === branch) 
         : [...mainClientToBranchShipments];
 
-    let baseShipments = billNumber
+        let baseShipments = billNumber
         ? allShipments.filter(s => s.billNumber === billNumber)
-        : (mode === 'alltime' ? allShipments : allShipments.filter(s => {
-            let sd = s.date ? s.date.split('T')[0] : '';
-            return sd === selectedDate;
-          }));
+        : allShipments;
 
     let filteredShipments = baseShipments.map(s => {
         let correctTotal = getCorrectShipmentTotal(s);
@@ -175,8 +196,8 @@ window.loadPaymentsByDate = async function () {
     });
     
     window._lastPaymentShipments = filteredShipments;
-    let displayLabel = billNumber ? `Bill Number: ${billNumber} (${filteredShipments[0]?.date || ''})` : selectedDate;
-    displayPayments(filteredShipments, displayLabel, branch, mode);
+    let displayLabel = billNumber ? `Bill Number: ${billNumber} (${filteredShipments[0]?.date || ''})` : 'All Bills';
+    displayPayments(filteredShipments, displayLabel, branch, billNumber ? 'date' : 'alltime');
 };
 
 function displayPayments(shipments, selectedDate, selectedBranch, mode = 'date') {
@@ -228,47 +249,16 @@ function displayPayments(shipments, selectedDate, selectedBranch, mode = 'date')
         <div class="payment-actions" style="text-align:right;margin-bottom:20px;">
             <button class="btn-bulk-payment" onclick="showBulkPaymentModal('${selectedDate}', '${mode}', 'USD')" ${usdSummary.count === 0 ? 'disabled' : ''}><i class="fas fa-money-bill-wave"></i> Bulk Payment (USD)</button>
         </div>` : ''}
+        <h3 style="margin-bottom:20px;">Remittances</h3>`;
 
-        <h3 style="margin-bottom:20px;">Payment Details</h3>`;
+    let selectedBill = document.getElementById('paymentBillNumberSelect')?.value || '';
+    let notesHtml = selectedBill ? (renderBillNotesBox(selectedBill, 'AFG') + renderBillNotesBox(selectedBill, 'USD')) : '';
+    html += notesHtml;
 
-    if (processedShipments.length === 0) {
-        html += `<div class="empty-state"><i class="fas fa-box"></i><h3>No Bills Found</h3><p>No shipments for the selected date: ${selectedDate}</p></div>`;
-    } else {
-        html += `<div class="table-wrapper"><table class="inventory-table" style="width:100%;">
-                <thead><tr><th>Bill Number</th><th>Date</th><th>Branch</th><th>Item</th><th>Currency</th><th>Qty</th><th>Price/Unit</th><th>Total</th><th>Paid</th><th>Partial</th><th>Unpaid</th><th>Action</th></tr></thead>
-                <tbody>${processedShipments.map((s, index) => {
-                    let fmt = (v) => formatByCurrency(v, s.currency);
-                    let hasRemainder = (s.partial + s.unpaid) > 0.01;
-                    return `<tr>
-                        <td><strong>${s.billNumber || '-'}</strong></td><td>${s.date}</td><td>${s.branch}</td><td>${s.item}</td>
-                    <td><span class="badge ${s.currency === 'USD' ? 'badge-mainclient' : 'badge-active'}">${s.currency}</span></td>
-                    <td>${s.qty}</td>
-                    <td>${fmt(s.sellingPrice)}${getItemDiscount(s.item) && s.unpaid > 0.01 ? `<br><small style="color:#22c55e;">Discounted</small>` : ''}</td>
-                    <td class="total-value">${fmt(s.total)}</td>
-                    <td style="color:#22c55e;font-weight:600;">${fmt(s.paidConfirmed)}</td>
-                    <td style="color:#f59e0b;font-weight:600;">${fmt(s.partial)}</td>
-                    <td style="color:#ef4444;font-weight:600;">${fmt(s.unpaid)}</td>
-                    <td>${hasRemainder ? `<button class="btn btn-reminder" onclick="showReminderModal('${s.branch}','${s.date}','${s.item}',${s.qty},${s.sellingPrice})"><i class="fas fa-bell"></i> Pay</button>` : `<span class="badge badge-paid">✓ PAID</span>`}</td>
-                </tr>`;
-            }).join('')}</tbody>
-            <tfoot><tr class="grand-total" style="background:#f0fdf4;">
-                <td colspan="7"><strong>Grand Total (AFG)</strong></td>
-                <td><strong>${formatMoney(afgSummary.totalValue)}</strong></td>
-                <td><strong>${formatMoney(afgSummary.totalPaid)}</strong></td>
-                <td><strong>${formatMoney(afgSummary.totalPartial)}</strong></td>
-                <td><strong>${formatMoney(afgSummary.totalUnpaid)}</strong></td>
-                <td></td>
-            </tr>
-            ${usdSummary.count > 0 ? `<tr class="grand-total" style="background:#eff6ff;">
-                <td colspan="7"><strong>Grand Total (USD)</strong></td>
-                <td><strong>${formatByCurrency(usdSummary.totalValue,'USD')}</strong></td>
-                <td><strong>${formatByCurrency(usdSummary.totalPaid,'USD')}</strong></td>
-                <td><strong>${formatByCurrency(usdSummary.totalPartial,'USD')}</strong></td>
-                <td><strong>${formatByCurrency(usdSummary.totalUnpaid,'USD')}</strong></td>
-                <td></td>
-            </tr>` : ''}</tfoot>
-        </table></div>`;
-    }
+    let remList = getFilteredRemittances({ mainClient: currentUser.username, branch: selectedBranch || '', billNumber: selectedBill });
+    html += renderRemittanceSection(remList, false);
+
+    html += notesHtml;
     html += `</div>`;
     let container = document.getElementById('paymentsContainer');
     if (container) { container.style.display = 'block'; container.innerHTML = html; }
@@ -301,6 +291,10 @@ window.showBulkPaymentModal = function (date, mode, currency = 'AFG') {
             <input type="number" id="bulkPaymentAmount" step="0.01" min="0.01" value="${totalUnpaid.toFixed(2)}">
             <small style="color:#166534;">Maximum: ${formatByCurrency(totalUnpaid, currency)}</small>
         </div>
+        <div class="form-group">
+            <label>Description</label>
+            <textarea id="bulkPaymentDescription" rows="3" placeholder="Enter description for this payment..."></textarea>
+        </div>
         <button class="save-btn" onclick="processBulkPayment('${date}', ${totalUnpaid}, '${mode}', '${currency}')">
             <i class="fas fa-check"></i> Process Bulk Payment
         </button>`;
@@ -317,6 +311,7 @@ window.processBulkPayment = async function (date, maxUnpaid, mode, currency = 'A
 
     let shipments = (window._lastPaymentShipments || []).filter(s => getItemCurrency(s.item) === currency);
     let remaining = paymentAmount;
+    let allocations = [];
     for (const shipment of shipments) {
         if (remaining <= 0.01) break;
         if (!shipment.uniqueKey) continue;
@@ -333,8 +328,38 @@ window.processBulkPayment = async function (date, maxUnpaid, mode, currency = 'A
             if (res.ok) {
                 shipmentPayments[shipment.uniqueKey] = alreadyPaid + payThis;
                 remaining -= payThis;
+                allocations.push({ shipment_id: shipment.uniqueKey, amount: payThis, bill_number: shipment.billNumber || '', branch: shipment.branch });
             }
         } catch(err) { console.error('Error:', err); }
+    }
+
+    let description = document.getElementById('bulkPaymentDescription')?.value.trim() || '';
+        if (allocations.length > 0) {
+        try {
+            await fetch('/api/remittances', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    main_client: currentUser.username,
+                    currency,
+                    amount: allocations.reduce((sum, a) => sum + a.amount, 0),
+                    description,
+                    bill_numbers: [...new Set(allocations.map(a => a.bill_number).filter(Boolean))],
+                    branches: [...new Set(allocations.map(a => a.branch).filter(Boolean))],
+                    allocations: allocations.map(a => ({ shipment_id: a.shipment_id, amount: a.amount }))
+                })
+            });
+        } catch (e) { console.log('Error saving remittance:', e); }
+    }
+    if (description) {
+        let billNumbersPaid = [...new Set(shipments.map(s => s.billNumber).filter(Boolean))];
+        for (const bn of billNumbersPaid) {
+            try {
+                await fetch('/api/bill-payment-notes', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bill_number: bn, currency, note: description })
+                });
+            } catch (e) { console.log(e); }
+        }
     }
 
     closeModal();
@@ -382,6 +407,14 @@ window.processPayment = async function (branch, date, item, qty, price) {
     } else { alert('Failed to process payment. Please try again.'); }
 };
 
+function renderBillNotesBox(billNumber, currency) {
+    let notes = billPaymentNotes.filter(n => n.bill_number === billNumber && n.currency === currency);
+    if (notes.length === 0) return '';
+    return `<div style="background:#fffbeb;border:2px solid #fde68a;border-radius:12px;padding:12px;margin:10px 0;">
+        <strong style="color:#92400e;"><i class="fas fa-sticky-note"></i> Description (${currency}) — ${escapeHtml(billNumber)}</strong>
+        ${notes.map(n => `<div style="margin-top:6px;color:#78350f;">• ${escapeHtml(n.note)} <small style="color:#a16207;">(${String(n.created_date).split('T')[0]})</small></div>`).join('')}
+    </div>`;
+}
 
 async function processShipmentPayment(shipment, paymentAmount) {
     if (!shipment.uniqueKey) { console.error('Shipment has no uniqueKey:', shipment); return false; }
@@ -1084,16 +1117,13 @@ async function renderMainClientReport() {
     let clientItems = await getMainClientItems();
     let approvedReturns = branchReturns.filter(r => r.status === 'approved' || r.status === 'paid');
 
-   
-    let paymentToAdminTotalAFG = 0, paymentToAdminTotalUSD = 0;
-    try {
-        const paRes = await fetch(`/api/payments-to-admin/${currentUser.username}`);
-        if (paRes.ok) {
-            const paData = await paRes.json();
-            paymentToAdminTotalAFG = paData.filter(p => p.status === 'paid' && (p.currency||'AFG') !== 'USD').reduce((sum, p) => sum + parseFloat(p.amount), 0);
-            paymentToAdminTotalUSD = paData.filter(p => p.status === 'paid' && p.currency === 'USD').reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        }
-    } catch(err) { console.log('Error loading payment to admin:', err); }
+    let paymentToAdminTotalAFG = mainClientToBranchShipments
+        .filter(s => getItemCurrency(s.item) !== 'USD')
+        .reduce((sum, s) => sum + getShipmentAmountBreakdown(s).paidConfirmed, 0);
+    let paymentToAdminTotalUSD = mainClientToBranchShipments
+        .filter(s => getItemCurrency(s.item) === 'USD')
+        .reduce((sum, s) => sum + getShipmentAmountBreakdown(s).paidConfirmed, 0);
+
 
     function buildMyReportBlock(currency) {
         let fmt = (v) => formatByCurrency(v, currency);
@@ -1178,7 +1208,7 @@ async function renderMainClientReport() {
             <div class="summary-card-large" style="background:linear-gradient(145deg,#166534,#14532d);">
                 <h4 style="color:white;"><i class="fas fa-hand-holding-usd"></i> Payment to Admin</h4>
                 <div class="amount" style="color:white;font-size:22px;">${currency === 'USD' ? fmt(paymentToAdminTotalUSD) : fmt(paymentToAdminTotalAFG)}</div>
-                <div class="subtitle" style="color:rgba(255,255,255,0.8);">Confirmed paid payments</div>
+                <div class="subtitle" style="color:rgba(255,255,255,0.8);">Confirmed by Admin (from Payments)</div>
             </div>
             <div class="summary-card-large" style="background:linear-gradient(145deg,#22c55e,#16a34a);">
                 <h4 style="color:white;"><i class="fas fa-store"></i> Payment from All Branches</h4>
@@ -1710,3 +1740,80 @@ window.deleteMcPaymentToAdmin  = async function(id) {
         alert('Payment deleted successfully!');
     } catch(err) { alert('Failed to delete: ' + err.message); }
 };
+
+function parseJsonArray(value) {
+    try { let a = JSON.parse(value || '[]'); return Array.isArray(a) ? a : []; }
+    catch (e) { return []; }
+}
+
+function getFilteredRemittances(opts) {
+    return remittances.filter(r => {
+        if (opts.mainClient && r.main_client !== opts.mainClient) return false;
+        if (opts.branch && !parseJsonArray(r.branches).includes(opts.branch)) return false;
+        if (opts.billNumber && !parseJsonArray(r.bill_numbers).includes(opts.billNumber)) return false;
+        if (opts.range) {
+            let d = String(r.sent_date).split('T')[0];
+            if (d < opts.range.start || d > opts.range.end) return false;
+        }
+        return true;
+    });
+}
+
+function renderRemittanceSection(list, isAdmin) {
+    let pending = list.filter(r => r.status === 'pending').length;
+    let approved = list.filter(r => r.status === 'approved').length;
+    let rejected = list.filter(r => r.status === 'rejected').length;
+
+    let html = `
+        <div class="summary-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">
+            <div class="summary-item"><div class="label">Total Remittances</div><div class="value">${list.length}</div></div>
+            <div class="summary-item"><div class="label">Pending</div><div class="value" style="color:#f59e0b;">${pending}</div></div>
+            <div class="summary-item"><div class="label">Approved</div><div class="value" style="color:#22c55e;">${approved}</div></div>
+            <div class="summary-item"><div class="label">Rejected</div><div class="value" style="color:#ef4444;">${rejected}</div></div>
+        </div>`;
+
+    if (isAdmin && pending > 0) {
+        html += `<div style="text-align:right;margin-bottom:15px;">
+            <button class="btn-bulk-payment" onclick="approveSelectedRemittances()"><i class="fas fa-check-double"></i> Approve Selected</button>
+            <button class="btn btn-delete" onclick="rejectSelectedRemittances()" style="margin-left:8px;"><i class="fas fa-times"></i> Reject Selected</button>
+        </div>`;
+    }
+
+    if (list.length === 0) {
+        return html + `<div class="empty-state"><i class="fas fa-money-check-alt"></i><h3>No Remittances</h3></div>`;
+    }
+
+    html += list.map(r => {
+        let cur = r.currency || 'AFG';
+        let sent = String(r.sent_date).split('T')[0];
+        let decided = r.decision_date ? String(r.decision_date).split('T')[0] : '';
+        let bills = parseJsonArray(r.bill_numbers);
+        let branchesList = parseJsonArray(r.branches);
+        let color = r.status === 'approved' ? '#22c55e' : (r.status === 'rejected' ? '#ef4444' : '#f59e0b');
+        let bg = r.status === 'approved' ? '#f0fdf4' : (r.status === 'rejected' ? '#fef2f2' : '#fffbeb');
+        let label = r.status === 'approved' ? 'APPROVED' : (r.status === 'rejected' ? 'REJECTED' : 'PENDING');
+
+        return `<div style="background:${bg};border:2px solid ${color};border-radius:16px;padding:16px;margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    ${isAdmin && r.status === 'pending' ? `<input type="checkbox" class="rem-chk" value="${r.id}" style="width:20px;height:20px;">` : ''}
+                    <strong style="font-size:18px;">${formatByCurrency(parseFloat(r.amount), cur)}</strong>
+                    <span class="badge ${cur === 'USD' ? 'badge-mainclient' : 'badge-active'}">${cur}</span>
+                </div>
+                <span style="background:${color};color:white;padding:4px 14px;border-radius:20px;font-weight:600;font-size:13px;">${label}</span>
+            </div>
+            <div style="margin-top:10px;color:#475569;line-height:1.8;">
+                <div><i class="fas fa-user-tie"></i> Main Client: <strong>${escapeHtml(r.main_client)}</strong></div>
+                <div><i class="fas fa-code-branch"></i> Branch(es): <strong>${branchesList.map(escapeHtml).join(', ') || '-'}</strong></div>
+                <div><i class="fas fa-receipt"></i> Bill(s): <strong>${bills.map(escapeHtml).join(', ') || '-'}</strong></div>
+                <div><i class="fas fa-calendar"></i> Sent: <strong>${sent}</strong>${decided ? ` &nbsp;|&nbsp; ${r.status === 'approved' ? 'Approved' : 'Rejected'}: <strong>${decided}</strong>` : ''}</div>
+                <div><i class="fas fa-sticky-note"></i> Description: ${escapeHtml(r.description) || '-'}</div>
+            </div>
+            ${isAdmin && r.status === 'pending' ? `<div style="margin-top:12px;text-align:right;">
+                <button class="btn btn-success" onclick="decideRemittances([${r.id}], 'approve')"><i class="fas fa-check"></i> Approve</button>
+                <button class="btn btn-delete" onclick="decideRemittances([${r.id}], 'reject')"><i class="fas fa-times"></i> Reject</button>
+            </div>` : ''}
+        </div>`;
+    }).join('');
+    return html;
+}
